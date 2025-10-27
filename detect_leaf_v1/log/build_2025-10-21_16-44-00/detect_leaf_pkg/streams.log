@@ -1,0 +1,43 @@
+[0.770s] Invoking command in '/home/hao/Desktop/4231SuppliedCode/detect_leaf/src/detect_leaf_pkg': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/detect_leaf_pkg build --build-base /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build install --record /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/install.log --single-version-externally-managed install_data
+[1.085s] running egg_info
+[1.086s] creating ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info
+[1.086s] writing ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/PKG-INFO
+[1.086s] writing dependency_links to ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/dependency_links.txt
+[1.087s] writing entry points to ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/entry_points.txt
+[1.087s] writing requirements to ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/requires.txt
+[1.087s] writing top-level names to ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/top_level.txt
+[1.087s] writing manifest file '../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/SOURCES.txt'
+[1.090s] reading manifest file '../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/SOURCES.txt'
+[1.091s] writing manifest file '../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/SOURCES.txt'
+[1.091s] running build
+[1.091s] running build_py
+[1.091s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build
+[1.091s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib
+[1.091s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg
+[1.092s] copying detect_leaf_pkg/coordinates_display.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg
+[1.092s] copying detect_leaf_pkg/__init__.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg
+[1.092s] copying detect_leaf_pkg/leaf_detector.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg
+[1.092s] running install
+[1.092s] running install_lib
+[1.094s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg
+[1.094s] copying /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg/coordinates_display.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg
+[1.094s] copying /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg/__init__.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg
+[1.094s] copying /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build/lib/detect_leaf_pkg/leaf_detector.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg
+[1.095s] byte-compiling /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg/coordinates_display.py to coordinates_display.cpython-310.pyc
+[1.096s] byte-compiling /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg/__init__.py to __init__.cpython-310.pyc
+[1.096s] byte-compiling /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg/leaf_detector.py to leaf_detector.cpython-310.pyc
+[1.099s] running install_data
+[1.100s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/ament_index
+[1.100s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/ament_index/resource_index
+[1.100s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/ament_index/resource_index/packages
+[1.100s] copying resource/detect_leaf_pkg -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/ament_index/resource_index/packages
+[1.100s] copying package.xml -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/detect_leaf_pkg
+[1.101s] creating /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/detect_leaf_pkg/launch
+[1.101s] copying launch/leaf_detector.launch.py -> /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/share/detect_leaf_pkg/launch
+[1.101s] running install_egg_info
+[1.102s] Copying ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info to /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages/detect_leaf_pkg-0.0.0-py3.10.egg-info
+[1.103s] running install_scripts
+[1.130s] Installing coordinates_display script to /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/detect_leaf_pkg
+[1.130s] Installing leaf_detector script to /home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/detect_leaf_pkg
+[1.130s] writing list of installed files to '/home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/install.log'
+[1.170s] Invoked command in '/home/hao/Desktop/4231SuppliedCode/detect_leaf/src/detect_leaf_pkg' returned '0': CONDA_PROMPT_MODIFIER=(base) PYTHONPATH=/home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/hao/Desktop/4231SuppliedCode/detect_leaf/install/detect_leaf_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/detect_leaf_pkg build --build-base /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/build install --record /home/hao/Desktop/4231SuppliedCode/detect_leaf/build/detect_leaf_pkg/install.log --single-version-externally-managed install_data

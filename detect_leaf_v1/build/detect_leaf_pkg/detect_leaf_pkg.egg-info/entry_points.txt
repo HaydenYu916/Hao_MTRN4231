@@ -1,0 +1,4 @@
+[console_scripts]
+coordinates_display = detect_leaf_pkg.coordinates_display:main
+leaf_detector = detect_leaf_pkg.leaf_detector:main
+
