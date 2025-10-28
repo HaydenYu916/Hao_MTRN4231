@@ -1,0 +1,17 @@
+# Camera Extrinsic Parameters Configuration
+# Parameters from URDF xacro file (flange -> camera_link)
+
+camera_rpy:
+  - 3.12825   # roll (radians)
+  - -3.12574  # pitch (radians)
+  - -3.13495  # yaw (radians)
+
+camera_position:
+  - 0.0199931    # x (meters)
+  - -0.0028582   # y (meters)
+  - -0.109958    # z (meters)
+
+# Notes:
+# These parameters define the transform from flange link to camera_link
+# Need to confirm the relationship between flange and base_link
+# If camera is mounted on robot end-effector flange, may need to adjust coordinate system

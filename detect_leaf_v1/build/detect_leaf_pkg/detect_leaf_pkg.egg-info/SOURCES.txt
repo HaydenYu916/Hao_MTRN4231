@@ -9,6 +9,7 @@ setup.py
 ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/top_level.txt
 ../../build/detect_leaf_pkg/detect_leaf_pkg.egg-info/zip-safe
 detect_leaf_pkg/__init__.py
+detect_leaf_pkg/coordinate_transformer.py
 detect_leaf_pkg/coordinates_display.py
 detect_leaf_pkg/leaf_detector.py
 launch/leaf_detector.launch.py

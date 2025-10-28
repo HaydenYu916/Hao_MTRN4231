@@ -1,6 +1,9 @@
+PyYAML
 numpy
 opencv-python
 plantcv
+pyrealsense2
+scipy
 setuptools
 
 [test]

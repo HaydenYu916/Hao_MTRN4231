@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import String, Int32
 from geometry_msgs.msg import Vector3
 from visualization_msgs.msg import Marker, MarkerArray
@@ -13,13 +13,14 @@ from plantcv import plantcv as pcv
 import json
 import os
 from datetime import datetime
+import pyrealsense2 as rs
 
 
 class LeafDetector(Node):
     """
-    叶子检测节点 - 使用PlantCV库
-    订阅相机图像话题，检测图像中的叶子并发布检测结果
-    发布标注的彩色图像（带边界框和标签）到 /leaf_detection/annotated_image
+    Leaf detection node - usingPlantCVlibrary
+    订阅Cameraimage话题，检测image中的叶子并发布检测结果
+    发布标注的彩色image（带边界框和标签）到 /leaf_detection/annotated_image
     """
     
     def __init__(self):
@@ -32,6 +33,26 @@ class LeafDetector(Node):
             self.image_callback,
             10
         )
+        
+        # 订阅Depthimage
+        self.depth_subscription = self.create_subscription(
+            Image,
+            '/camera/camera/aligned_depth_to_color/image_raw',
+            self.depth_callback,
+            10
+        )
+        
+        # 订阅Cameraintrinsics（using彩色Cameraintrinsics）
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo,
+            '/camera/camera/color/camera_info',
+            self.camera_info_callback,
+            10
+        )
+        
+        # 存储Depthimage和Cameraintrinsics
+        self.depth_image = None
+        self.intrinsics = None
         
         self.detection_publisher = self.create_publisher(
             String,
@@ -74,7 +95,7 @@ class LeafDetector(Node):
         # CV Bridge for image conversion
         self.bridge = CvBridge()
         
-        # 添加标注图像发布者 (彩色标注，带边界框和标签)
+        # 添加标注image发布者 (彩色标注，带边界框和标签)
         self.annotated_image_publisher = self.create_publisher(
             Image,
             '/leaf_detection/annotated_image',
@@ -91,20 +112,88 @@ class LeafDetector(Node):
         # 设置PlantCV参数
         pcv.params.debug = None  # 关闭调试输出
         
-        self.get_logger().info('🌿 叶子检测节点已启动 (使用PlantCV)')
+        self.get_logger().info('🌿 Leaf detection nodestarted (usingPlantCV)')
         self.frame_count = 0
+    
+    def depth_callback(self, msg):
+        """处理Depthimage"""
+        try:
+            # 将Depthimage转换为numpy数组（单位：毫米）
+            self.depth_image = self.bridge.imgmsg_to_cv2(msg, "16UC1")
+        except Exception as e:
+            self.get_logger().error(f'✗ Depthimage处理error: {str(e)}')
+    
+    def camera_info_callback(self, msg):
+        """处理Cameraintrinsics"""
+        try:
+            if self.intrinsics is not None:
+                return  # 只设置一次
+            
+            # 创建RealSenseintrinsics对象
+            self.intrinsics = rs.intrinsics()
+            self.intrinsics.width = msg.width
+            self.intrinsics.height = msg.height
+            self.intrinsics.ppx = msg.k[2]  # 主点x
+            self.intrinsics.ppy = msg.k[5]  # 主点y
+            self.intrinsics.fx = msg.k[0]   # 焦距x
+            self.intrinsics.fy = msg.k[4]   # 焦距y
+            
+            # 畸变模型
+            if msg.distortion_model == 'plumb_bob':
+                self.intrinsics.model = rs.distortion.brown_conrady
+            elif msg.distortion_model == 'equidistant':
+                self.intrinsics.model = rs.distortion.kannala_brandt4
+            
+            # 畸变系数
+            self.intrinsics.coeffs = list(msg.d)
+            
+            self.get_logger().info(f'✓ Cameraintrinsicsloaded: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}')
+            
+        except Exception as e:
+            self.get_logger().error(f'✗ Cameraintrinsics处理error: {str(e)}')
+    
+    def pixel_to_3d(self, pixel_u, pixel_v, depth_value_mm):
+        """
+        将pixelcoordinates和Depth值转换为3Dcoordinates（Cameracoordinates系）
+        
+        Args:
+            pixel_u (float): pixelucoordinates
+            pixel_v (float): pixelvcoordinates
+            depth_value_mm (float): Depth值（毫米）
+        
+        Returns:
+            tuple: (X, Y, Z) 3Dcoordinates（米）
+        """
+        if self.intrinsics is None or depth_value_mm == 0:
+            return None
+        
+        try:
+            # 将Depth值从毫米转换为米
+            depth_m = depth_value_mm * 0.001
+            
+            # usingRealSense SDK将pixelcoordinates和Depth转换为3D点
+            point_3d = rs.rs2_deproject_pixel_to_point(
+                self.intrinsics,
+                [pixel_u, pixel_v],
+                depth_m
+            )
+            
+            return tuple(point_3d)
+        except Exception as e:
+            self.get_logger().error(f'✗ 3Dcoordinates转换error: {str(e)}')
+            return None
     
     def image_callback(self, msg):
         """
-        处理接收到的图像消息
+        处理接收到的image消息
         """
         try:
             self.frame_count += 1
             
-            # 将ROS图像消息转换为OpenCV格式
+            # 将ROSimage消息转换为OpenCV格式
             cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             
-            # 使用PlantCV检测叶子
+            # usingPlantCV检测叶子
             detection_result, leaf_data, bounding_boxes = self.detect_leaves_with_plantcv(cv_image)
             
             # 发布检测结果
@@ -117,13 +206,27 @@ class LeafDetector(Node):
             count_msg.data = leaf_data['num_leaves'] if leaf_data else 0
             self.leaf_count_publisher.publish(count_msg)
             
-            # 发布坐标信息
+            # 发布coordinates信息
             if leaf_data:
                 coord_msg = String()
+                
+                # 构建Cameraintrinsics信息
+                camera_params = None
+                if self.intrinsics is not None:
+                    camera_params = {
+                        'width': self.intrinsics.width,
+                        'height': self.intrinsics.height,
+                        'fx': float(self.intrinsics.fx),
+                        'fy': float(self.intrinsics.fy),
+                        'ppx': float(self.intrinsics.ppx),
+                        'ppy': float(self.intrinsics.ppy)
+                    }
+                
                 coord_msg.data = json.dumps({
                     'frame': self.frame_count,
                     'timestamp': leaf_data.get('timestamp', ''),
                     'num_leaves': leaf_data['num_leaves'],
+                    'camera_params': camera_params,
                     'coordinates': leaf_data.get('coordinates', [])
                 })
                 self.coordinates_publisher.publish(coord_msg)
@@ -141,7 +244,7 @@ class LeafDetector(Node):
             if bounding_boxes is not None:
                 self.publish_bounding_boxes(bounding_boxes, msg.header)
             
-            # 发布标注的彩色图像 (带边界框和标签，如同index_colab.py)
+            # 发布标注的彩色image (带边界框和标签，如同index_colab.py)
             self.publish_annotated_image(cv_image, leaf_data, msg.header)
             
             # 发布3D叶子标记
@@ -150,16 +253,16 @@ class LeafDetector(Node):
             
             # 定期记录日志
             if self.frame_count % 30 == 0:
-                self.get_logger().info(f'✓ 帧 {self.frame_count}: {leaf_data["num_leaves"] if leaf_data else 0} 片叶子检测到')
+                self.get_logger().info(f'✓ Frame {self.frame_count}: {leaf_data["num_leaves"] if leaf_data else 0} leaves detected')
             
         except Exception as e:
-            self.get_logger().error(f'✗ 图像处理错误: {str(e)}')
+            self.get_logger().error(f'✗ image处理error: {str(e)}')
             import traceback
             traceback.print_exc()
     
     def detect_leaves_with_plantcv(self, cv_image):
         """
-        使用PlantCV库进行叶子检测
+        usingPlantCVlibrary进行叶子检测
         返回: (检测结果字符串, 叶子数据字典, 边界框列表)
         """
         try:
@@ -219,7 +322,7 @@ class LeafDetector(Node):
             if len(valid_contours) == 0:
                 return "未检测到有效的叶子", None, None
             
-            # 提取坐标信息
+            # 提取coordinates信息
             leaf_coordinates = []
             bounding_boxes = []
             
@@ -238,6 +341,19 @@ class LeafDetector(Node):
                 area = cv2.contourArea(cnt)
                 perimeter = cv2.arcLength(cnt, True)
                 
+                # 获取Depth值和3Dcoordinates
+                depth_value_mm = 0
+                point_3d = None
+                if self.depth_image is not None:
+                    try:
+                        # 确保coordinates在Depth图范围内
+                        if cx < self.depth_image.shape[1] and cy < self.depth_image.shape[0]:
+                            depth_value_mm = int(self.depth_image[cy, cx])
+                            # 转换3Dcoordinates
+                            point_3d = self.pixel_to_3d(cx, cy, depth_value_mm)
+                    except:
+                        pass
+                
                 # 保存叶子信息
                 leaf_info = {
                     'id': idx,
@@ -254,6 +370,8 @@ class LeafDetector(Node):
                     },
                     'area': float(area),
                     'perimeter': float(perimeter),
+                    'depth_mm': float(depth_value_mm),  # Depth值（毫米）
+                    'point_3d': point_3d,  # 3Dcoordinates (X, Y, Z)（米）
                 }
                 leaf_coordinates.append(leaf_info)
                 
@@ -278,8 +396,8 @@ class LeafDetector(Node):
             return result, leaf_data, bounding_boxes
             
         except Exception as e:
-            self.get_logger().error(f'✗ PlantCV检测错误: {str(e)}')
-            return f"检测错误: {str(e)}", None, None
+            self.get_logger().error(f'✗ PlantCV检测error: {str(e)}')
+            return f"检测error: {str(e)}", None, None
     
     def publish_bounding_boxes(self, bounding_boxes, header):
         """
@@ -322,11 +440,11 @@ class LeafDetector(Node):
             self.bounding_box_publisher.publish(marker_array)
             
         except Exception as e:
-            self.get_logger().error(f'✗ 边界框发布错误: {str(e)}')
+            self.get_logger().error(f'✗ 边界框发布error: {str(e)}')
 
     def publish_annotated_image(self, cv_image, leaf_data, header):
         """
-        发布标注后的图像 (带边界框和标签，匹配index_colab.py风格)
+        发布标注后的image (带边界框和标签，匹配index_colab.py风格)
         """
         try:
             annotated = cv_image.copy()
@@ -338,7 +456,7 @@ class LeafDetector(Node):
                 self.annotated_image_publisher.publish(annotated_msg)
                 return
             
-            # 彩色列表（不同叶子使用不同颜色）
+            # 彩色列表（不同叶子using不同颜色）
             colors = [
                 (255, 0, 0),      # 蓝色
                 (0, 255, 0),      # 绿色
@@ -355,7 +473,7 @@ class LeafDetector(Node):
                 obj_id = leaf['id']
                 color = colors[(obj_id - 1) % len(colors)]
                 
-                # 获取边界框坐标
+                # 获取边界框coordinates
                 bbox = leaf['bounding_box']
                 x = bbox['x_min']
                 y = bbox['y_min']
@@ -386,17 +504,17 @@ class LeafDetector(Node):
                 # 绘制圆形标记（可选）
                 cv2.circle(annotated, (cx, cy), 15, color, 2)
                 
-                # 显示面积信息（可选）
+                # Display面积信息（可选）
                 area_text = f"A:{leaf['area']:.0f}"
                 cv2.putText(annotated, area_text, (x + 5, y_max - 5),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
             
-            # 在左上角显示总数
+            # 在左上角Display总数
             total_text = f"Leaves: {leaf_data['num_leaves']}"
             cv2.putText(annotated, total_text, (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
             
-            # 发布标注图像
+            # 发布标注image
             annotated_msg = self.bridge.cv2_to_imgmsg(annotated, "bgr8")
             annotated_msg.header = header
             self.annotated_image_publisher.publish(annotated_msg)
@@ -405,7 +523,7 @@ class LeafDetector(Node):
             # self.plantcv_annotated_publisher.publish(annotated_msg) # 已移除
             
         except Exception as e:
-            self.get_logger().error(f'✗ 标注图像发布错误: {str(e)}')
+            self.get_logger().error(f'✗ 标注image发布error: {str(e)}')
 
     def publish_leaf_markers(self, leaf_data, header):
         """
@@ -448,7 +566,7 @@ class LeafDetector(Node):
             self.leaf_markers_publisher.publish(marker_array)
             
         except Exception as e:
-            self.get_logger().error(f'✗ 3D叶子标记发布错误: {str(e)}')
+            self.get_logger().error(f'✗ 3D叶子标记发布error: {str(e)}')
 
 
 def main(args=None):
@@ -459,7 +577,7 @@ def main(args=None):
     try:
         rclpy.spin(leaf_detector)
     except KeyboardInterrupt:
-        print("\n✓ 叶子检测节点已停止")
+        print("\n✓ Leaf detection node已停止")
     finally:
         leaf_detector.destroy_node()
         rclpy.shutdown()

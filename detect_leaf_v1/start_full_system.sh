@@ -5,7 +5,13 @@ echo "=== Starting Complete Leaf Detection and Visualization System (RealSense +
 
 # Set up environment
 source /opt/ros/humble/setup.bash
-cd /home/hao/Desktop/4231SuppliedCode/detect_leaf
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$SCRIPT_DIR"
+
+# Change to workspace directory
+cd "$WORKSPACE_DIR"
 source install/setup.bash
 
 # Clean up existing processes
@@ -18,7 +24,7 @@ sleep 2
 
 # Start RealSense camera
 echo "Starting RealSense camera..."
-cd /home/hao/Desktop/4231SuppliedCode
+cd ..
 ./4231_scripts/camera.sh &
 CAMERA_PID=$!
 echo "✓ Camera PID: $CAMERA_PID"
@@ -58,7 +64,7 @@ if [ "$MODE" == "2" ]; then
     # Mode 2: Standalone Python script
     echo ""
     echo "Starting standalone Python script (index_colab.py)..."
-    cd /home/hao/Desktop/4231SuppliedCode
+    cd ..
     python3 index_colab.py &
     DETECTOR_PID=$!
     echo "✓ Detection script PID: $DETECTOR_PID"
@@ -66,7 +72,7 @@ else
     # Mode 1: ROS2 Node (using leaf_detector)
     echo ""
     echo "Starting ROS2 leaf detection node (leaf_detector)..."
-    cd /home/hao/Desktop/4231SuppliedCode/detect_leaf
+    cd "$WORKSPACE_DIR"
     
     # Start ROS2 leaf detection node
     ros2 run detect_leaf_pkg leaf_detector &
@@ -111,8 +117,8 @@ if [ "$MODE" == "2" ]; then
 else
     echo "Starting RViz2..."
     
-    # Use absolute path configuration file
-    CONFIG_FILE="/home/hao/Desktop/4231SuppliedCode/detect_leaf/annotated_image.rviz"
+    # Use relative path configuration file
+    CONFIG_FILE="annotated_image.rviz"
     
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "⚠️  Configuration file does not exist: $CONFIG_FILE"
@@ -130,6 +136,12 @@ else
     echo "Waiting for RViz2 startup (10 seconds)..."
     sleep 10
     
+    # Start coordinate transformer (camera to base)
+    echo "Starting coordinate transformer (camera -> base)..."
+    ros2 run detect_leaf_pkg coordinate_transformer &
+    TRANSFORMER_PID=$!
+    echo "✓ Coordinate transformer PID: $TRANSFORMER_PID"
+    
     # Start coordinate information listener
     echo "Starting coordinate information listener..."
     ros2 run detect_leaf_pkg coordinates_display &
@@ -144,6 +156,9 @@ echo "  Camera: $CAMERA_PID"
 echo "  Detection: $DETECTOR_PID"
 if [ ! -z "$RVIZ_PID" ]; then
     echo "  RViz2: $RVIZ_PID"
+fi
+if [ ! -z "$TRANSFORMER_PID" ]; then
+    echo "  Coordinate Transformer: $TRANSFORMER_PID"
 fi
 echo "  Coordinate Display: $COORDS_PID"
 echo ""

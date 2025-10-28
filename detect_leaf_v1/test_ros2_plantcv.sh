@@ -65,7 +65,7 @@ sleep 2
 # Start RealSense camera
 echo ""
 echo "=== Starting RealSense Camera ==="
-cd /home/hao/Desktop/4231SuppliedCode
+cd ..
 ./4231_scripts/camera.sh &
 CAMERA_PID=$!
 echo "✓ RealSense camera process started, PID: $CAMERA_PID"
@@ -102,7 +102,7 @@ echo ""
 
 MODE=${1:-1}
 
-cd /home/hao/Desktop/4231SuppliedCode
+cd ..
 
 # Check Python environment
 echo ""

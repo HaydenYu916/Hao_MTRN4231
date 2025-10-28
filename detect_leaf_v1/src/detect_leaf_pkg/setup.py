@@ -12,7 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/leaf_detector.launch.py']),
     ],
-    install_requires=['setuptools', 'plantcv', 'opencv-python', 'numpy'],
+    install_requires=['setuptools', 'plantcv', 'opencv-python', 'numpy', 'scipy', 'pyrealsense2', 'PyYAML'],
     zip_safe=True,
     maintainer='hao',
     maintainer_email='hao@todo.todo',
@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'leaf_detector = detect_leaf_pkg.leaf_detector:main',
             'coordinates_display = detect_leaf_pkg.coordinates_display:main',
+            'coordinate_transformer = detect_leaf_pkg.coordinate_transformer:main',
         ],
     },
 )

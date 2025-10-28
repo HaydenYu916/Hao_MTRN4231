@@ -1,4 +1,5 @@
 [console_scripts]
+coordinate_transformer = detect_leaf_pkg.coordinate_transformer:main
 coordinates_display = detect_leaf_pkg.coordinates_display:main
 leaf_detector = detect_leaf_pkg.leaf_detector:main
 
