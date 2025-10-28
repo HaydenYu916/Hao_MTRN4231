@@ -114,6 +114,8 @@ class LeafDetector(Node):
         
         self.get_logger().info('🌿 Leaf detection nodestarted (usingPlantCV)')
         self.frame_count = 0
+        self.previous_marker_ids = []  # Track previously published marker IDs to clear them
+        self.previous_bbox_ids = []  # Track previously published bounding box IDs to clear them
     
     def depth_callback(self, msg):
         """处理Depthimage"""
@@ -240,16 +242,18 @@ class LeafDetector(Node):
                 vector_msg.z = float(first_leaf.get('area', 0))
                 self.center_vector_publisher.publish(vector_msg)
             
-            # 发布边界框
-            if bounding_boxes is not None:
-                self.publish_bounding_boxes(bounding_boxes, msg.header)
+            # 发布边界框（即使没有叶子也要发布以清除旧的边界框）
+            bboxes_to_publish = bounding_boxes if bounding_boxes is not None else []
+            self.publish_bounding_boxes(bboxes_to_publish, msg.header)
             
             # 发布标注的彩色image (带边界框和标签，如同index_colab.py)
             self.publish_annotated_image(cv_image, leaf_data, msg.header)
             
-            # 发布3D叶子标记
+            # 发布3D叶子标记（即使没有叶子也要发布以清除旧的标记）
+            leaf_coords = []
             if leaf_data and len(leaf_data.get('coordinates', [])) > 0:
-                self.publish_leaf_markers(leaf_data['coordinates'], msg.header)
+                leaf_coords = leaf_data['coordinates']
+            self.publish_leaf_markers(leaf_coords, msg.header)
             
             # 定期记录日志
             if self.frame_count % 30 == 0:
@@ -406,6 +410,9 @@ class LeafDetector(Node):
         try:
             marker_array = MarkerArray()
             
+            # Get current bounding box IDs
+            current_bbox_ids = []
+            
             for bbox in bounding_boxes:
                 marker = Marker()
                 marker.header = header
@@ -436,6 +443,20 @@ class LeafDetector(Node):
                 marker.color.a = 0.5
                 
                 marker_array.markers.append(marker)
+                current_bbox_ids.append(marker.id)
+            
+            # Delete bounding boxes that are no longer present
+            for old_id in self.previous_bbox_ids:
+                if old_id not in current_bbox_ids:
+                    delete_marker = Marker()
+                    delete_marker.header = header
+                    delete_marker.header.frame_id = "camera_color_optical_frame"
+                    delete_marker.id = old_id
+                    delete_marker.action = Marker.DELETE
+                    marker_array.markers.append(delete_marker)
+            
+            # Update tracked bounding box IDs
+            self.previous_bbox_ids = current_bbox_ids
             
             self.bounding_box_publisher.publish(marker_array)
             
@@ -532,6 +553,10 @@ class LeafDetector(Node):
         try:
             marker_array = MarkerArray()
             
+            # Get current marker IDs
+            current_marker_ids = []
+            
+            # Add markers for current leaves
             for leaf in leaf_data:
                 marker = Marker()
                 marker.header = header
@@ -562,6 +587,20 @@ class LeafDetector(Node):
                 marker.color.a = 0.8
                 
                 marker_array.markers.append(marker)
+                current_marker_ids.append(marker.id)
+            
+            # Delete markers that are no longer present
+            for old_id in self.previous_marker_ids:
+                if old_id not in current_marker_ids:
+                    delete_marker = Marker()
+                    delete_marker.header = header
+                    delete_marker.header.frame_id = "camera_color_optical_frame"
+                    delete_marker.id = old_id
+                    delete_marker.action = Marker.DELETE
+                    marker_array.markers.append(delete_marker)
+            
+            # Update tracked marker IDs
+            self.previous_marker_ids = current_marker_ids
             
             self.leaf_markers_publisher.publish(marker_array)
             
