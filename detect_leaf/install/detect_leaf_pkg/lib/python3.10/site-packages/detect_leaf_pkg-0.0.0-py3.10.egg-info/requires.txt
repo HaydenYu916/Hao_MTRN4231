@@ -1,7 +1,0 @@
-numpy
-opencv-python
-plantcv
-setuptools
-
-[test]
-pytest

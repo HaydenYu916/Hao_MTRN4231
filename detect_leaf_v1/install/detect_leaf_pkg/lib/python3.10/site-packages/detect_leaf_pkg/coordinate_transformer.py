@@ -55,7 +55,7 @@ class CoordinateTransformer(Node):
             10
         )
         
-        # 发布转换后的coordinates
+        # 发布转换后的坐标
         self.transformed_publisher = self.create_publisher(
             String,
             '/leaf_detection/base_coordinates',
