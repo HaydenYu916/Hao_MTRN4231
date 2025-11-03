@@ -1,5 +1,8 @@
 #include <memory>
 #include <string>
+#include <vector>
+#include <limits>
+#include <cmath>
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
@@ -10,6 +13,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <tf2/LinearMath/Quaternion.h>
+#include <moveit_msgs/msg/robot_trajectory.hpp>
 
 using namespace std::chrono_literals;
 
@@ -77,9 +81,6 @@ int main(int argc, char* argv[])
   moveit_visual_tools.deleteAllMarkers();
   moveit_visual_tools.loadRemoteControl();
 
-  // Choice of planner
-  move_group_interface.setPlannerId("TRRTkConfigDefault");
-
   // Make sure we're in the same frame as used for constraints
   move_group_interface.setPoseReferenceFrame(move_group_interface.getPlanningFrame());
   
@@ -92,13 +93,81 @@ int main(int argc, char* argv[])
 
   // Set target pose (facing down: 0,1,0,0)
   auto target_pose = generatePoseMsg(target_x, target_y, target_z, 0.0, 1.0, 0.0, 0.0);
-  move_group_interface.setPoseTarget(target_pose);
+  
+  // Set tolerances to allow some flexibility
+  move_group_interface.setGoalPositionTolerance(0.01);  // 1cm position tolerance
+  move_group_interface.setGoalOrientationTolerance(0.1);  // ~6 degrees orientation tolerance
 
   std::cout << "Starting path planning..." << std::endl;
-
-  // Plan
+  
+  // Method 1: Try Cartesian path planning first (straight line movement)
+  // This is the most direct way to avoid circular paths
+  // computeCartesianPath automatically starts from current pose
+  std::vector<geometry_msgs::msg::Pose> waypoints;
+  waypoints.push_back(target_pose);
+  
+  moveit_msgs::msg::RobotTrajectory trajectory;
+  const double jump_threshold = 0.0;  // Disable jump checking
+  const double eef_step = 0.01;  // 1cm step size for Cartesian path
+  
+  double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+  
+  bool success = false;
   moveit::planning_interface::MoveGroupInterface::Plan planMessage;
-  auto success = static_cast<bool>(move_group_interface.plan(planMessage));
+  
+  if (fraction >= 0.95) {  // If at least 95% of path can be done in straight line
+    std::cout << "✓ Cartesian path planning successful (" << fraction * 100 << "% coverage)!" << std::endl;
+    planMessage.trajectory_ = trajectory;
+    success = true;
+  } else {
+    std::cout << "Cartesian path only covers " << fraction * 100 << "%, trying regular planning..." << std::endl;
+    
+    // Method 2: Fallback to regular planning with optimized planner
+    // Try multiple planners and select the shortest path
+    std::vector<std::string> planners = {"RRTConnectkConfigDefault", "RRTstarkConfigDefault"};
+    double best_path_length = std::numeric_limits<double>::max();
+    moveit::planning_interface::MoveGroupInterface::Plan best_plan;
+    bool found_plan = false;
+    
+    move_group_interface.setPoseTarget(target_pose);
+    
+    for (const auto& planner_id : planners) {
+      move_group_interface.setPlannerId(planner_id);
+      move_group_interface.setPlanningTime(5.0);  // Shorter time for faster attempts
+      move_group_interface.setNumPlanningAttempts(3);  // Try 3 times per planner
+      
+      moveit::planning_interface::MoveGroupInterface::Plan temp_plan;
+      if (move_group_interface.plan(temp_plan)) {
+        // Calculate path length (sum of joint position differences)
+        double path_length = 0.0;
+        if (!temp_plan.trajectory_.joint_trajectory.points.empty()) {
+          auto prev = temp_plan.trajectory_.joint_trajectory.points[0].positions;
+          for (size_t i = 1; i < temp_plan.trajectory_.joint_trajectory.points.size(); ++i) {
+            auto curr = temp_plan.trajectory_.joint_trajectory.points[i].positions;
+            for (size_t j = 0; j < prev.size() && j < curr.size(); ++j) {
+              path_length += std::abs(curr[j] - prev[j]);
+            }
+            prev = curr;
+          }
+        }
+        
+        if (path_length < best_path_length) {
+          best_path_length = path_length;
+          best_plan = temp_plan;
+          found_plan = true;
+          std::cout << "  Found plan with planner " << planner_id << " (path length: " << path_length << ")" << std::endl;
+        }
+      }
+    }
+    
+    if (found_plan) {
+      planMessage = best_plan;
+      success = true;
+      std::cout << "✓ Best plan selected (shortest path: " << best_path_length << ")!" << std::endl;
+    } else {
+      RCLCPP_ERROR(logger, "All planning methods failed!");
+    }
+  }
     
   // Execute the plan
   if (success) {

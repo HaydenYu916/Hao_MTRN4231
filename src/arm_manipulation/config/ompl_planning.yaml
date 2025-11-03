@@ -19,7 +19,10 @@ move_group:
       planner_configs:
         RRTConnectkConfigDefault:
           type: geometric::RRTConnect
-          range: 0.0
+          range: 0.1  # Increased range for longer steps (more direct paths)
         TRRTkConfigDefault:
           type: geometric::TRRT
           range: 0.0
+        RRTstarkConfigDefault:
+          type: geometric::RRTstar
+          range: 0.1  # Optimized planner that finds shorter paths
