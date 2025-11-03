@@ -28,7 +28,7 @@ def generate_launch_description():
     
     bias_x_arg = DeclareLaunchArgument(
         'bias_x',
-        default_value='0.0',
+        default_value='0.05',
         description='X-axis coordinate bias (meters)'
     )
     
