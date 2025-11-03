@@ -26,7 +26,7 @@ class AutomationOrchestrator(Node):
         # Configuration parameters
         self.declare_parameter('min_area', 0.0)  # Minimum leaf area
         self.declare_parameter('confidence', 0.0)  # Detection confidence
-        self.declare_parameter('offset_z', 0.05)  # Z-axis offset (safety distance when approaching leaf)
+        self.declare_parameter('offset_z', 0.15)  # Z-axis offset (safety distance when approaching leaf)
         
         # Home position configuration
         self.declare_parameter('home_x', 0.25)  # Home X coordinate
