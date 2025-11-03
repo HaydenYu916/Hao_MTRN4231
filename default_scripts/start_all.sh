@@ -113,5 +113,7 @@ echo "- RobotCameraTF: Robot + Camera TF"
 echo "- Camera: RealSense Camera Node"
 echo "- LeafDetection: Leaf Detection Server + Visualization"
 echo "=========================================="
+echo ""
+echo "💡 提示: 使用 ./default_scripts/run_automation.sh 启动自动化任务"
 
 # ros2 launch arm_manipulation moveit_scene_home_launch.py x:=0.25 y:=0.10 z:=0.55

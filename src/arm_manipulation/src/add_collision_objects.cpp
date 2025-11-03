@@ -55,17 +55,21 @@ int main(int argc, char* argv[])
   auto col_object_table = generateCollisionObject(2.4, 1.2, 0.04, 0.85, 0.25, -0.03, frame_id, "table");
   auto col_object_backWall = generateCollisionObject(2.4, 0.04, 1.0, 0.85, -0.45, 0.5, frame_id, "backWall");
   auto col_object_sideWall = generateCollisionObject(0.04, 1.2, 1.0, -0.45, 0.25, 0.5, frame_id, "sideWall");
+  // Trash bin: 0.3m x 0.3m x 0.05m, height 0.05m (center at z=0.025m, top at z=0.05m)
+  auto col_object_trashBin = generateCollisionObject(0.3, 0.3, 0.05, 0.10, 0.5, 0.025, frame_id, "trashBin");
 
   // Add the collision objects to the scene
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
   planning_scene_interface.applyCollisionObject(col_object_table);
   planning_scene_interface.applyCollisionObject(col_object_backWall);
   planning_scene_interface.applyCollisionObject(col_object_sideWall);
+  planning_scene_interface.applyCollisionObject(col_object_trashBin);
   
   std::cout << "✓ Added the following collision objects:" << std::endl;
   std::cout << "  - table (2.4 x 1.2 x 0.04)" << std::endl;
   std::cout << "  - backWall (2.4 x 0.04 x 1.0)" << std::endl;
   std::cout << "  - sideWall (0.04 x 1.2 x 1.0)" << std::endl;
+  std::cout << "  - trashBin (0.3 x 0.3 x 0.05), height=0.05m, center at (0.10, 0.5, 0.025)" << std::endl;
   std::cout << "\nScene setup complete!" << std::endl;
   std::cout << "Collision objects have been added to the scene and will persist." << std::endl;
   
