@@ -18,9 +18,14 @@ import pyrealsense2 as rs
 class TFHandler:
     """Handles coordinate transformations using ROS2 TF system"""
 
-    def __init__(self, node):
+    def __init__(self, node, x_offset=0.0, y_offset=0.0, z_offset=0.0):
         self.node = node
         self.intrinsics = None
+        
+        # --- Hard constraint: XYZ offsets for base_link conversion (in meters) ---
+        self.x_offset = x_offset  # Default: 0m
+        self.y_offset = y_offset  # Default: 0m
+        self.z_offset = z_offset  # Default: 0m
 
         # --- Initialize TF system ---
         self.tf_buffer = tf2_ros.Buffer()
@@ -39,7 +44,10 @@ class TFHandler:
         self.camera_frame = 'camera_link'                   # RealSense body
         self.optical_frame = 'camera_color_optical_frame'   # RealSense color optical frame
 
-        self.get_logger().info('✓ TF Handler initialized (PointStamped version)')
+        self.get_logger().info(
+            f'✓ TF Handler initialized (PointStamped version, '
+            f'offsets: x={self.x_offset}m, y={self.y_offset}m, z={self.z_offset}m)'
+        )
 
     # ------------------------------------------------------------
     # Simplified logger access
@@ -163,7 +171,24 @@ class TFHandler:
 
             # Use do_transform_point to directly transform the point
             transformed = do_transform_point(point_stamped, transform)
-            return [transformed.point.x, transformed.point.y, transformed.point.z]
+            
+            # Log transformation details (before applying offsets)
+            self.get_logger().debug(
+                f'TF transform: camera_optical({point_camera[0]:.3f}, {point_camera[1]:.3f}, {point_camera[2]:.3f}) '
+                f'-> base_link({transformed.point.x:.3f}, {transformed.point.y:.3f}, {transformed.point.z:.3f}) '
+                f'[offsets: ({self.x_offset:.3f}, {self.y_offset:.3f}, {self.z_offset:.3f})]'
+            )
+            
+            # Apply hard constraint: add offsets to all coordinates
+            result_x = transformed.point.x + self.x_offset
+            result_y = transformed.point.y + self.y_offset
+            result_z = transformed.point.z + self.z_offset
+            
+            self.get_logger().debug(
+                f'Final coordinates (base_link + offsets): ({result_x:.3f}, {result_y:.3f}, {result_z:.3f})'
+            )
+            
+            return [result_x, result_y, result_z]
 
         except Exception as e:
             self.get_logger().error(f'✗ Camera→Base TF error: {e}')

@@ -188,16 +188,29 @@ class DetectionHandler:
         from geometry_msgs.msg import Point
         
         if self.tf_handler:
-            for leaf in leaf_coordinates:
+            for i, leaf in enumerate(leaf_coordinates):
                 point_3d = leaf.get('point_3d')
                 if point_3d is not None:
+                    # Log original camera optical frame coordinates
+                    self.get_logger().debug(
+                        f'Leaf {i+1} - Camera optical frame: '
+                        f'({point_3d[0]:.3f}, {point_3d[1]:.3f}, {point_3d[2]:.3f})'
+                    )
+                    
                     base_coords = self.tf_handler.camera_to_base(point_3d)
                     if base_coords:
+                        self.get_logger().debug(
+                            f'Leaf {i+1} - Base_link frame (after TF + offsets): '
+                            f'({base_coords[0]:.3f}, {base_coords[1]:.3f}, {base_coords[2]:.3f})'
+                        )
+                        
                         point_msg = Point()
                         point_msg.x = float(base_coords[0])
                         point_msg.y = float(base_coords[1])
                         point_msg.z = float(base_coords[2])
                         coordinates.append(point_msg)
+                    else:
+                        self.get_logger().warn(f'Leaf {i+1} - Failed to convert to base coordinates')
         else:
             for leaf in leaf_coordinates:
                 point_3d = leaf.get('point_3d')

@@ -35,6 +35,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformListener, Buffer
+from visualization_msgs.msg import Marker
 import math
 
 class ArmPositionViewer(Node):
@@ -53,12 +54,23 @@ class ArmPositionViewer(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
+        # Publisher for RViz markers (display position coordinates)
+        self.marker_pub = self.create_publisher(
+            Marker,
+            '/arm_monitoring/position_marker',
+            10
+        )
+        
         self.joint_data = None
+        self.current_position = None  # Store current position for marker
         self.get_logger().info('Arm position viewer started!')
         self.get_logger().info('=' * 60)
         
         # Timer: display information every 2 seconds
         self.timer = self.create_timer(2.0, self.display_info)
+        
+        # Timer: update RViz marker at higher frequency (10Hz)
+        self.marker_timer = self.create_timer(0.1, self.publish_position_marker)
     
     def joint_callback(self, msg):
         """Receive joint state"""
@@ -110,8 +122,19 @@ class ArmPositionViewer(Node):
             print(f"    Pitch: {math.degrees(pitch):7.2f}°")
             print(f"    Yaw:   {math.degrees(yaw):7.2f}°")
             
+            # Store position for marker display
+            self.current_position = {
+                'x': transform.transform.translation.x,
+                'y': transform.transform.translation.y,
+                'z': transform.transform.translation.z,
+                'roll': math.degrees(roll),
+                'pitch': math.degrees(pitch),
+                'yaw': math.degrees(yaw)
+            }
+            
         except Exception as e:
             self.get_logger().warn(f'Failed to get TF transform: {str(e)}')
+            self.current_position = None
         
         # 3. Display other coordinate frames
         try:
@@ -121,6 +144,43 @@ class ArmPositionViewer(Node):
             pass
         
         print("=" * 60)
+    
+    def publish_position_marker(self):
+        """Publish position coordinates as text marker in RViz"""
+        if self.current_position is None:
+            return
+        
+        try:
+            marker = Marker()
+            marker.header.frame_id = "base_link"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "arm_position"
+            marker.id = 0
+            marker.type = Marker.TEXT_VIEW_FACING
+            marker.action = Marker.ADD
+            
+            # Position marker very close to end effector (minimal offset)
+            marker.pose.position.x = self.current_position['x']
+            marker.pose.position.y = self.current_position['y']
+            marker.pose.position.z = self.current_position['z'] + 0.25  # Only 5cm above end effector
+            marker.pose.orientation.w = 1.0
+            
+            # Text content: compact format without extra spaces
+            marker.text = f"({self.current_position['x']:.3f},{self.current_position['y']:.3f},{self.current_position['z']:.3f})"
+            
+            # Text properties (smaller size)
+            marker.scale.z = 0.03  # Smaller text height
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0  # Yellow color
+            marker.color.a = 1.0
+            
+            marker.lifetime.sec = 0  # 0 = permanent until deleted
+            
+            self.marker_pub.publish(marker)
+            
+        except Exception as e:
+            self.get_logger().warn(f'Failed to publish position marker: {str(e)}')
     
     @staticmethod
     def quaternion_to_euler(x, y, z, w):

@@ -22,3 +22,6 @@ camera_quaternion:
 #   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
 #       args="1.29163 0.0146956 0.665489   -0.396568 -0.0131018 0.91791 -0.00187618 base_link camera_link" />
 # </launch>
+
+
+#just a reference， use display_with_camera.launch change parameters here！！！
