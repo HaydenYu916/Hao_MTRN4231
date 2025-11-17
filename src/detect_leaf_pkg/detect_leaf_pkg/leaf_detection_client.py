@@ -59,11 +59,19 @@ class LeafDetectionClient(Node):
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Status: {response.message}")
         self.get_logger().info(f"Leaves found: {response.num_leaves}")
+        has_yellow = list(response.has_yellow_tape)
+        yellow_ratio = list(response.yellow_ratio)
+        health_status = list(response.health_status)
         
         for i, point in enumerate(response.coordinates):
+            tape_flag = has_yellow[i] if i < len(has_yellow) else False
+            ratio = yellow_ratio[i] if i < len(yellow_ratio) else 0.0
+            health_label = health_status[i] if i < len(health_status) else ('unhealthy' if tape_flag else 'healthy')
+            tape_tag = '[Tape]' if tape_flag else '[Healthy]'
             self.get_logger().info(
                 f"  Leaf {i+1}: "
-                f"X={point.x:.3f}m, Y={point.y:.3f}m, Z={point.z:.3f}m"
+                f"X={point.x:.3f}m, Y={point.y:.3f}m, Z={point.z:.3f}m "
+                f"{tape_tag} ratio={ratio:.2f} status={health_label}"
             )
         
         if response.debug_info:

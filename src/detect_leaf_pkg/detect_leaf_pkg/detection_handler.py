@@ -33,12 +33,19 @@ class DetectionHandler:
         # Latest detection results (for service to use)
         self.latest_leaf_data = None
         self.latest_coordinates_base = None
+        self.latest_leaf_attributes = {
+            'has_yellow_tape': [],
+            'yellow_ratio': [],
+            'health_status': []
+        }
         import threading
         self.latest_data_lock = threading.Lock()
         
         # Detection mode: continuous or on-demand
         self.continuous_detection = node.declare_parameter('continuous_detection', True).value
         self.min_area_default = 2000.0  # Default min area
+        self.detect_yellow_tape = node.declare_parameter('detect_yellow_tape', True).value
+        self.yellow_ratio_threshold = node.declare_parameter('yellow_ratio_threshold', 0.08).value
         
         # Publisher for detection results (for visualization node to subscribe)
         self.detection_results_pub = node.create_publisher(
@@ -54,9 +61,24 @@ class DetectionHandler:
             10
         )
         
+        self.healthy_leaves_pub = node.create_publisher(
+            String,
+            '/leaf_detection/healthy_leaves',
+            10
+        )
+        self.unhealthy_leaves_pub = node.create_publisher(
+            String,
+            '/leaf_detection/unhealthy_leaves',
+            10
+        )
+        
         self.get_logger().info('✓ DetectionHandler initialized')
         if self.continuous_detection:
             self.get_logger().info('📡 Continuous detection mode: images will be published continuously')
+        if self.detect_yellow_tape:
+            self.get_logger().info(
+                f'🎯 Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.2f})'
+            )
     
     def get_logger(self):
         """Get node logger"""
@@ -111,6 +133,14 @@ class DetectionHandler:
                     self.latest_leaf_data = leaf_data
                     # Also compute base coordinates for latest data
                     self.latest_coordinates_base = self._convert_to_base_coordinates(leaf_data.get('coordinates', []))
+                    has_yellow, yellow_ratio, health_status = self._extract_leaf_attributes(
+                        leaf_data.get('coordinates', [])
+                    )
+                    self.latest_leaf_attributes = {
+                        'has_yellow_tape': has_yellow,
+                        'yellow_ratio': yellow_ratio,
+                        'health_status': health_status
+                    }
                     
                     # Log base frame coordinates periodically
                     if self._frame_count % 30 == 0 and self.latest_coordinates_base:
@@ -120,6 +150,14 @@ class DetectionHandler:
                 else:
                     self.latest_leaf_data = None
                     self.latest_coordinates_base = []
+                    self.latest_leaf_attributes = {
+                        'has_yellow_tape': [],
+                        'yellow_ratio': [],
+                        'health_status': []
+                    }
+            
+            # Publish health status summary
+            self._publish_health_status(leaf_data)
             
             # Publish detection results to topic (for visualization node)
             if leaf_data:
@@ -182,6 +220,46 @@ class DetectionHandler:
             except:
                 pass
     
+    def _publish_health_status(self, leaf_data):
+        """Publish healthy/unhealthy leaf summaries as separate topics"""
+        healthy_leaves = []
+        unhealthy_leaves = []
+        
+        if leaf_data and leaf_data.get('coordinates'):
+            for leaf in leaf_data['coordinates']:
+                is_unhealthy = bool(leaf.get('has_yellow_tape', False))
+                payload = {
+                    'id': leaf.get('id'),
+                    'center': leaf.get('center', {}),
+                    'bounding_box': leaf.get('bounding_box', {}),
+                    'yellow_ratio': leaf.get('yellow_ratio', 0.0),
+                    'health_status': 'unhealthy' if is_unhealthy else 'healthy'
+                }
+                if is_unhealthy:
+                    unhealthy_leaves.append(payload)
+                else:
+                    healthy_leaves.append(payload)
+        else:
+            # No leaves detected, publish empty payloads
+            healthy_leaves = []
+            unhealthy_leaves = []
+        
+        healthy_msg = String()
+        healthy_msg.data = json.dumps({
+            'timestamp': datetime.now().isoformat(),
+            'num_leaves': len(healthy_leaves),
+            'leaves': healthy_leaves
+        })
+        unhealthy_msg = String()
+        unhealthy_msg.data = json.dumps({
+            'timestamp': datetime.now().isoformat(),
+            'num_leaves': len(unhealthy_leaves),
+            'leaves': unhealthy_leaves
+        })
+        
+        self.healthy_leaves_pub.publish(healthy_msg)
+        self.unhealthy_leaves_pub.publish(unhealthy_msg)
+    
     def _convert_to_base_coordinates(self, leaf_coordinates):
         """Convert leaf coordinates to base frame"""
         coordinates = []
@@ -223,6 +301,17 @@ class DetectionHandler:
         
         return coordinates
     
+    def _extract_leaf_attributes(self, leaf_records):
+        """Extract yellow tape indicators and health labels from detection results"""
+        has_yellow = []
+        yellow_ratio = []
+        health_status = []
+        for leaf in leaf_records or []:
+            has_yellow.append(bool(leaf.get('has_yellow_tape', False)))
+            yellow_ratio.append(float(leaf.get('yellow_ratio', 0.0)))
+            health_status.append(str(leaf.get('health_status', 'unknown')))
+        return has_yellow, yellow_ratio, health_status
+    
     async def handle_request(self, request):
         """Handle detection service request"""
         if request.command == "detect":
@@ -230,7 +319,13 @@ class DetectionHandler:
         else:
             return {
                 'success': False,
-                'message': f"Unknown command: {request.command}"
+                'message': f"Unknown command: {request.command}",
+                'coordinates': [],
+                'num_leaves': 0,
+                'has_yellow_tape': [],
+                'yellow_ratio': [],
+                'health_status': [],
+                'debug_info': ''
             }
     
     async def _detect_leaves(self, request):
@@ -241,6 +336,9 @@ class DetectionHandler:
                 'message': "No frame available",
                 'coordinates': [],
                 'num_leaves': 0,
+                'has_yellow_tape': [],
+                'yellow_ratio': [],
+                'health_status': [],
                 'debug_info': ''
             }
         
@@ -254,11 +352,15 @@ class DetectionHandler:
                     if self.latest_coordinates_base is not None:
                         num_leaves = len(self.latest_coordinates_base)
                         if num_leaves > 0:
+                            attrs = self.latest_leaf_attributes
                             return {
                                 'success': True,
                                 'message': f"Detected {num_leaves} leaves (using latest continuous detection)",
                                 'coordinates': self.latest_coordinates_base.copy(),
                                 'num_leaves': num_leaves,
+                                'has_yellow_tape': list(attrs.get('has_yellow_tape', [])),
+                                'yellow_ratio': list(attrs.get('yellow_ratio', [])),
+                                'health_status': list(attrs.get('health_status', [])),
                                 'debug_info': json.dumps({
                                     'source': 'latest_continuous_detection',
                                     'has_base_coords': self.tf_handler is not None
@@ -270,6 +372,9 @@ class DetectionHandler:
                                 'message': "No leaves detected in latest frame",
                                 'coordinates': [],
                                 'num_leaves': 0,
+                                'has_yellow_tape': [],
+                                'yellow_ratio': [],
+                                'health_status': [],
                                 'debug_info': json.dumps({'source': 'latest_continuous_detection'})
                             }
             
@@ -286,17 +391,26 @@ class DetectionHandler:
                     'message': detection_result,
                     'coordinates': [],
                     'num_leaves': 0,
+                    'has_yellow_tape': [],
+                    'yellow_ratio': [],
+                    'health_status': [],
                     'debug_info': json.dumps({'detection_result': detection_result, 'min_area': min_area})
                 }
             
             # Convert to base frame coordinates
             coordinates = self._convert_to_base_coordinates(leaf_data.get('coordinates', []))
+            has_yellow, yellow_ratio, health_status = self._extract_leaf_attributes(
+                leaf_data.get('coordinates', [])
+            )
             
             return {
                 'success': True,
                 'message': f"Detected {len(coordinates)} leaves",
                 'coordinates': coordinates,
                 'num_leaves': len(coordinates),
+                'has_yellow_tape': has_yellow,
+                'yellow_ratio': yellow_ratio,
+                'health_status': health_status,
                 'debug_info': json.dumps({
                     'num_leaves': leaf_data['num_leaves'],
                     'timestamp': leaf_data.get('timestamp', ''),
@@ -314,6 +428,9 @@ class DetectionHandler:
                 'message': f"Detection failed: {str(e)}",
                 'coordinates': [],
                 'num_leaves': 0,
+                'has_yellow_tape': [],
+                'yellow_ratio': [],
+                'health_status': [],
                 'debug_info': json.dumps({'error': str(e), 'traceback': traceback.format_exc()})
             }
     
@@ -328,20 +445,28 @@ class DetectionHandler:
             # Minimal cropping
             crop_img = pcv.crop(img=cv_image, x=20, y=20, h=h-40, w=w-40)
             
-            # HSV color space - detect green
+            # HSV color space - detect green and optional yellow tape
             hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
             lower_green = np.array([40, 60, 40])
             upper_green = np.array([80, 255, 255])
-            thresh = cv2.inRange(hsv, lower_green, upper_green)
-            thresh = (thresh / 255).astype(np.uint8)
+            thresh_green = cv2.inRange(hsv, lower_green, upper_green)
+            thresh_green = (thresh_green / 255).astype(np.uint8)
+            
+            thresh_yellow_full = None
+            if self.detect_yellow_tape:
+                lower_yellow = np.array([20, 80, 80])
+                upper_yellow = np.array([40, 255, 255])
+                thresh_yellow_full = cv2.inRange(hsv, lower_yellow, upper_yellow)
+                kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_OPEN, kernel_small, iterations=1)
             
             # Morphological processing
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+            thresh_green = cv2.morphologyEx(thresh_green, cv2.MORPH_CLOSE, kernel, iterations=2)
+            thresh_green = cv2.morphologyEx(thresh_green, cv2.MORPH_OPEN, kernel, iterations=1)
             
             # Contour detection
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(thresh_green, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             if len(contours) == 0:
                 return "No leaves detected", None, None
@@ -423,6 +548,23 @@ class DetectionHandler:
                 if not has_valid_depth:
                     continue
                 
+                has_yellow_tape = False
+                yellow_ratio = 0.0
+                if self.detect_yellow_tape and thresh_yellow_full is not None:
+                    leaf_mask = np.zeros_like(thresh_green, dtype=np.uint8)
+                    cv2.drawContours(leaf_mask, [cnt], -1, 255, -1)
+                    
+                    leaf_region_mask = leaf_mask[y:y + h_rect, x:x + w_rect]
+                    leaf_region_yellow = thresh_yellow_full[y:y + h_rect, x:x + w_rect]
+                    
+                    leaf_pixels = np.sum(leaf_region_mask > 0)
+                    yellow_pixels = np.sum((leaf_region_mask > 0) & (leaf_region_yellow > 0))
+                    
+                    if leaf_pixels > 0:
+                        yellow_ratio = yellow_pixels / leaf_pixels
+                        if yellow_ratio >= self.yellow_ratio_threshold:
+                            has_yellow_tape = True
+                
                 # Save leaf info
                 leaf_info = {
                     'id': leaf_idx,
@@ -441,6 +583,9 @@ class DetectionHandler:
                     'perimeter': float(perimeter),
                     'depth_mm': float(depth_value_mm),
                     'point_3d': point_3d,
+                    'has_yellow_tape': has_yellow_tape,
+                    'yellow_ratio': float(yellow_ratio),
+                    'health_status': 'unhealthy' if has_yellow_tape else 'healthy'
                 }
                 leaf_coordinates.append(leaf_info)
                 
@@ -455,6 +600,7 @@ class DetectionHandler:
                 })
                 
                 leaf_idx += 1
+            
             
             num_detected_leaves = len(leaf_coordinates)
             
@@ -512,6 +658,8 @@ class DetectionHandler:
                 
                 # Draw label
                 label = f'Leaf {obj_id}'
+                if leaf.get('has_yellow_tape', False):
+                    label += ' [Tape]'
                 label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
                 label_y = max(y - 5, label_size[1] + 5)
                 

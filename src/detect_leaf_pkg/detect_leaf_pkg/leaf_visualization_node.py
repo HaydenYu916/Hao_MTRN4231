@@ -119,9 +119,11 @@ class LeafVisualizationNode(Node):
             # Clear all markers
             marker_array = MarkerArray()
             # Delete all existing markers
-            for marker_id in list(self.smoothed_positions.keys()):
+            for pos_key, marker_info in list(self.smoothed_positions.items()):
+                marker_id = int(marker_info.get('id', 0))
+                frame_id = marker_info.get('frame', 'base_link')
                 delete_marker = Marker()
-                delete_marker.header.frame_id = "base_link"  # Use common frame
+                delete_marker.header.frame_id = frame_id  # Use stored frame
                 delete_marker.header.stamp = self.get_clock().now().to_msg()
                 delete_marker.ns = "leaf_detections"
                 delete_marker.id = marker_id
@@ -212,9 +214,15 @@ class LeafVisualizationNode(Node):
                 marker.scale.y = 0.05
                 marker.scale.z = 0.05
                 
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
+                has_yellow = bool(leaf.get('has_yellow_tape', False))
+                if has_yellow:
+                    marker.color.r = 1.0
+                    marker.color.g = 1.0
+                    marker.color.b = 0.0
+                else:
+                    marker.color.r = 0.0
+                    marker.color.g = 1.0
+                    marker.color.b = 0.0
                 marker.color.a = 0.8
                 
                 marker.lifetime.sec = 0  # 0 = permanent, until deleted

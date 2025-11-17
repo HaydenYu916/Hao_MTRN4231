@@ -83,6 +83,9 @@ class LeafDetectionServer(Node):
             response.success = result.get('success', False)
             response.message = result.get('message', '')
             response.debug_info = result.get('debug_info', '')
+            response.has_yellow_tape = result.get('has_yellow_tape', [])
+            response.yellow_ratio = result.get('yellow_ratio', [])
+            response.health_status = result.get('health_status', [])
             
             # Visualization is now handled by independent leaf_visualization_node
                 

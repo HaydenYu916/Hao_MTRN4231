@@ -13,11 +13,15 @@
         <geometry>
           <mesh filename="${mesh_path}" scale="${scale_factor} ${scale_factor} ${scale_factor}"/>
         </geometry>
+        <!-- <origin xyz="0.06 -0.027 0" rpy="0 0 0"/> -->
         <origin xyz="0 0 0" rpy="0 0 0"/>
+        <material name="gripper_gray">
+          <color rgba="0.6 0.6 0.6 1.0"/>
+        </material>
       </visual>
       <collision>
         <geometry>
-          <mesh filename="${mesh_path}" scale="${scale_factor} ${scale_factor} ${scale_factor}"/>
+          <box size="0.05 0.1 0.1"/> 
         </geometry>
         <origin xyz="0 0 0" rpy="0 0 0"/>
       </collision>
@@ -34,28 +38,13 @@
   <!-- Main end-effector macro -->
   <xacro:macro name="end_effector" params="prefix parent">
     
-    <!-- camera link -->
-    <xacro:add_mesh_link name="${prefix}camera" mesh_path="package://end_effector_description/meshes/camera.stl"/>
-    <joint name="${prefix}end_effector_flange" type="fixed">
+    <!-- Gripper link -->
+    <xacro:add_mesh_link name="${prefix}gripper" mesh_path="package://robot_description/meshes/RG2.stl"/>
+    <joint name="${prefix}gripper_joint" type="fixed">
       <parent link="${parent}"/>
-      <child link="${prefix}camera"/>
-      <origin xyz="-0.02 -0.05 -0.135" rpy="${pi/2} 0 0"/>
-    </joint>
-
-    <!-- QC link, 5 cm above camera -->
-    <xacro:add_mesh_link name="${prefix}QC" mesh_path="package://end_effector_description/meshes/QC.stl"/>
-    <joint name="${prefix}camera2QC_joint" type="fixed">
-      <parent link="${prefix}camera"/>
-      <child link="${prefix}QC"/>
-      <origin xyz="0.02 0.147 -0.05" rpy="${pi} ${-pi/2} 0"/>
-    </joint>
-
-    <!-- Gripper link, 5 cm above QC -->
-    <xacro:add_mesh_link name="${prefix}gripper" mesh_path="package://end_effector_description/meshes/RG2.stl"/>
-    <joint name="${prefix}QC2Gripper_joint" type="fixed">
-      <parent link="${prefix}QC"/>
       <child link="${prefix}gripper"/>
-      <origin xyz="0 -0.067 -0.025" rpy="${-pi/2} ${pi} ${pi/2}"/>
+      <!-- <origin xyz="0 0 0.12" rpy="0 ${-pi/2} ${pi}"/> -->
+      <origin xyz="0 0.027 0.06" rpy="0 ${-pi/2} ${pi}"/>
     </joint>
 
   </xacro:macro>
