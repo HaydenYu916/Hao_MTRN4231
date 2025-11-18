@@ -7,7 +7,4 @@ int32 num_leaves                     # Number of leaves detected
 bool success                         # Whether detection was successful
 string message                       # Status message
 string debug_info                    # Additional debug information (JSON format)
-bool[] has_yellow_tape               # Whether each leaf has yellow tape
-float64[] yellow_ratio               # Yellow pixel ratio per leaf
-string[] health_status               # Health status labels per leaf
 

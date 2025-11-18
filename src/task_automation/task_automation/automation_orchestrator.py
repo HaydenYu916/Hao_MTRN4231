@@ -6,6 +6,7 @@ Automated task management integrating leaf detection and robot arm control
 """
 
 import rclpy
+import json
 from rclpy.node import Node
 from arm_msgs.srv import LeafDetectionSrv
 from geometry_msgs.msg import Point
@@ -175,9 +176,20 @@ class AutomationOrchestrator(Node):
         self.get_logger().info(f"Status: {response.message}")
         self.get_logger().info(f"Leaves detected: {response.num_leaves}")
         
+        # Parse yellow tape information for logging
+        has_yellow_tape_list = []
+        if response.debug_info:
+            try:
+                debug_data = json.loads(response.debug_info)
+                has_yellow_tape_list = debug_data.get('has_yellow_tape', [])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
         for i, point in enumerate(response.coordinates):
+            has_yellow = has_yellow_tape_list[i] if i < len(has_yellow_tape_list) else False
+            leaf_type = "[Unhealthy]" if has_yellow else "[Healthy]"
             self.get_logger().info(
-                f"  Leaf {i+1}: X={point.x:.3f}m, Y={point.y:.3f}m, Z={point.z:.3f}m"
+                f"  Leaf {i+1}: X={point.x:.3f}m, Y={point.y:.3f}m, Z={point.z:.3f}m {leaf_type}"
             )
         
         if response.debug_info:
@@ -331,7 +343,7 @@ class AutomationOrchestrator(Node):
             apply_bias=False  # Home position does not use bias
         )
     
-    def _process_single_leaf(self, leaf_index, total_leaves, leaf_point):
+    def _process_single_leaf(self, leaf_index, total_leaves, leaf_point, has_yellow_tape=False):
         """
         Process a single leaf
         
@@ -339,26 +351,31 @@ class AutomationOrchestrator(Node):
             leaf_index: Leaf index (starting from 1)
             total_leaves: Total number of leaves
             leaf_point: Leaf position coordinates
+            has_yellow_tape: Whether the leaf has yellow tape (unhealthy)
             
         Returns:
             bool: Whether processing was successful
         """
-        self.get_logger().info(f"\nProcessing leaf {leaf_index}/{total_leaves}...")
+        leaf_type = "unhealthy (with yellow tape)" if has_yellow_tape else "healthy"
+        self.get_logger().info(f"\nProcessing leaf {leaf_index}/{total_leaves} ({leaf_type})...")
         
-        # Move to leaf position for picking
+        # Move to leaf position
         if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, leaf_point.z):
-            self.get_logger().warn(f"⚠ Leaf {leaf_index} picking failed")
+            self.get_logger().warn(f"⚠ Leaf {leaf_index} movement failed")
             return False
         
-        self.get_logger().info(f"✓ Leaf {leaf_index} picked successfully")
+        if has_yellow_tape:
+            # Unhealthy leaf: move to trash bin to discard
+            self.get_logger().info(f"✓ Leaf {leaf_index} picked (unhealthy), moving to trash bin...")
+            if not self.move_arm_to_trash():
+                self.get_logger().warn(f"⚠ Leaf {leaf_index} discard failed")
+                return False
+            self.get_logger().info(f"✓ Leaf {leaf_index} discarded successfully")
+        else:
+            # Healthy leaf: just wait, then move to next
+            self.get_logger().info(f"✓ Leaf {leaf_index} processed (healthy), waiting 1 second...")
+            time.sleep(1.0)
         
-        # Move to trash bin to discard
-        self.get_logger().info(f"Moving to trash bin to discard leaf {leaf_index}...")
-        if not self.move_arm_to_trash():
-            self.get_logger().warn(f"⚠ Leaf {leaf_index} discard failed")
-            return False
-        
-        self.get_logger().info(f"✓ Leaf {leaf_index} discarded successfully")
         return True
     
     def run_automation_loop(self):
@@ -383,18 +400,43 @@ class AutomationOrchestrator(Node):
             self.get_logger().warn("No leaves detected, task ended")
             return False
         
+        # Parse yellow tape information from debug_info
+        has_yellow_tape_list = []
+        if response.debug_info:
+            try:
+                debug_data = json.loads(response.debug_info)
+                has_yellow_tape_list = debug_data.get('has_yellow_tape', [])
+            except (json.JSONDecodeError, TypeError):
+                self.get_logger().warn("Could not parse yellow tape info from debug_info")
+        
+        # Log leaf types
+        unhealthy_count = sum(1 for has_yellow in has_yellow_tape_list if has_yellow)
+        healthy_count = response.num_leaves - unhealthy_count
+        self.get_logger().info(
+            f"Leaf classification: {unhealthy_count} unhealthy (with yellow tape), "
+            f"{healthy_count} healthy"
+        )
+        
         # Step 2: Process all detected leaves
         success_count = 0
         for i, leaf_point in enumerate(response.coordinates):
-            if self._process_single_leaf(i + 1, response.num_leaves, leaf_point):
+            has_yellow = has_yellow_tape_list[i] if i < len(has_yellow_tape_list) else False
+            
+            if self._process_single_leaf(i + 1, response.num_leaves, leaf_point, has_yellow):
                 success_count += 1
             
-            # Wait before processing next leaf
+            # Wait before processing next leaf (only if not the last one)
             if i < response.num_leaves - 1:
-                self.get_logger().info(
-                    f"Waiting {self.wait_between_leaves}s before processing next leaf..."
-                )
-                time.sleep(self.wait_between_leaves)
+                # For healthy leaves, we already waited 1 second in _process_single_leaf
+                # For unhealthy leaves, we need to wait here
+                if has_yellow:
+                    self.get_logger().info(
+                        f"Waiting {self.wait_between_leaves}s before processing next leaf..."
+                    )
+                    time.sleep(self.wait_between_leaves)
+                else:
+                    # Healthy leaf already waited 1 second, no additional wait needed
+                    pass
         
         # Step 3: Print task completion summary
         self.get_logger().info("\n" + "=" * 80)

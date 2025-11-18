@@ -1,6 +1,6 @@
 #!/bin/bash
 # Complete system startup script
-# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Leaf Detection
+# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Dynamic Obstacles Monitor -> Leaf Detection
 
 echo "=========================================="
 echo "Starting UR5e + RealSense Complete System"
@@ -103,8 +103,14 @@ gnome-terminal -t "Camera" -e "bash -c 'cd \"$SCRIPT_DIR\" && ./camera.sh; exec 
 
 sleep 2
 
-# 6. Start leaf detection server
-echo "[7/8] Starting leaf detection server..."
+# 6. Start dynamic obstacles monitor (needs MoveIt to be running)
+echo "[7/9] Starting dynamic obstacles monitor..."
+gnome-terminal -t "ObstacleMonitor" -e "bash -c 'cd \"$WORKSPACE_DIR\" && fix_library_path() { if [ -n \"\$CONDA_PREFIX\" ]; then SYSTEM_LIB_PATH=\"/usr/lib/x86_64-linux-gnu\"; if [ -n \"\$LD_LIBRARY_PATH\" ]; then export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib:\${LD_LIBRARY_PATH}\"; else export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib\"; fi; fi; }; fix_library_path && source install/setup.bash && ros2 run dynamic_obstacles_monitor dynamic_obstacle_control; exec bash'"
+
+sleep 2
+
+# 7. Start leaf detection server
+echo "[8/9] Starting leaf detection server..."
 gnome-terminal -t "LeafDetection" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch detect_leaf_pkg leaf_detection_server.launch.py; exec bash'"
 
 sleep 2
@@ -118,6 +124,7 @@ echo "- CollisionObjects: Collision Objects"
 echo "- ArmMonitoring: Arm Position Viewer"
 echo "- RobotCameraTF: Robot + Camera TF"
 echo "- Camera: RealSense Camera Node"
+echo "- ObstacleMonitor: Dynamic Obstacles Monitor (subscribes to /obsFromImg)"
 echo "- LeafDetection: Leaf Detection Server + Visualization"
 echo "=========================================="
 echo ""

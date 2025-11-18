@@ -6,6 +6,7 @@ Client for calling leaf detection service
 """
 
 import rclpy
+import json
 from rclpy.node import Node
 from arm_msgs.srv import LeafDetectionSrv
 from geometry_msgs.msg import Point
@@ -59,9 +60,21 @@ class LeafDetectionClient(Node):
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Status: {response.message}")
         self.get_logger().info(f"Leaves found: {response.num_leaves}")
-        has_yellow = list(response.has_yellow_tape)
-        yellow_ratio = list(response.yellow_ratio)
-        health_status = list(response.health_status)
+        
+        # Parse additional info from debug_info JSON
+        has_yellow = []
+        yellow_ratio = []
+        health_status = []
+        
+        if response.debug_info:
+            try:
+                debug_data = json.loads(response.debug_info)
+                has_yellow = debug_data.get('has_yellow_tape', [])
+                yellow_ratio = debug_data.get('yellow_ratio', [])
+                health_status = debug_data.get('health_status', [])
+            except (json.JSONDecodeError, TypeError):
+                # If debug_info is not JSON, just use it as-is
+                pass
         
         for i, point in enumerate(response.coordinates):
             tape_flag = has_yellow[i] if i < len(has_yellow) else False
@@ -75,7 +88,13 @@ class LeafDetectionClient(Node):
             )
         
         if response.debug_info:
-            self.get_logger().info(f"Debug info: {response.debug_info}")
+            try:
+                # Only log if it's not JSON (to avoid duplicate info)
+                debug_data = json.loads(response.debug_info)
+                if debug_data.get('debug_info'):
+                    self.get_logger().info(f"Debug info: {debug_data.get('debug_info')}")
+            except (json.JSONDecodeError, TypeError):
+                self.get_logger().info(f"Debug info: {response.debug_info}")
         
         self.get_logger().info("=" * 80 + "\n")
 
