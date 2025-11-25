@@ -41,11 +41,14 @@ class DetectionHandler:
         import threading
         self.latest_data_lock = threading.Lock()
         
+        # Track published blue box IDs for cleanup
+        self.published_blue_box_ids = set()  # Track which box IDs have been published to MoveIt
+        
         # Detection mode: continuous or on-demand
         self.continuous_detection = node.declare_parameter('continuous_detection', True).value
         self.min_area_default = 2000.0  # Default min area
         self.detect_yellow_tape = node.declare_parameter('detect_yellow_tape', True).value
-        self.yellow_ratio_threshold = node.declare_parameter('yellow_ratio_threshold', 0.08).value  # 提高阈值到0.08以减少误检
+        self.yellow_ratio_threshold = node.declare_parameter('yellow_ratio_threshold', 0.05).value  # 降低阈值到0.05（5%）以更容易检测黄色胶布
         # HSV颜色范围参数（可配置，默认更严格以检测真正的黄色胶布）
         # 黄色胶布通常是亮黄色，饱和度和亮度都较高
         self.yellow_hsv_lower = node.declare_parameter('yellow_hsv_lower', [20, 100, 100]).value
@@ -55,7 +58,8 @@ class DetectionHandler:
         self.detect_blue_box = node.declare_parameter('detect_blue_box', True).value
         self.blue_min_area = node.declare_parameter('blue_min_area', 3000.0).value
         # 蓝色在HSV中：H值在100-130之间（蓝色范围），S和V值较高
-        self.blue_hsv_lower = node.declare_parameter('blue_hsv_lower', [100, 50, 50]).value
+        # 使用调整后的参数：S Lower=147 以减少误检
+        self.blue_hsv_lower = node.declare_parameter('blue_hsv_lower', [100, 147, 50]).value
         self.blue_hsv_upper = node.declare_parameter('blue_hsv_upper', [130, 255, 255]).value
         
         # Publisher for detection results (for visualization node to subscribe)
@@ -233,6 +237,9 @@ class DetectionHandler:
                     
                     # Publish blue boxes as MoveIt CollisionObjects to /obsFromImg
                     self._publish_blue_boxes_to_moveit(blue_boxes)
+                else:
+                    # No blue boxes detected: remove all previously published boxes
+                    self._publish_blue_boxes_to_moveit([])
             else:
                 # Publish empty results if no leaves detected
                 results_json = {
@@ -389,12 +396,18 @@ class DetectionHandler:
         from moveit_msgs.msg import CollisionObject
         from std_msgs.msg import Header
         
+        # Get current box IDs
+        current_box_ids = set()
+        
         for box in blue_boxes:
             point_3d = box.get('point_3d')
             size_3d = box.get('size_3d')
             
             if point_3d is None or size_3d is None:
                 continue
+            
+            box_id = f"blue_box_{box['id']:03d}"
+            current_box_ids.add(box_id)
             
             # Convert camera frame coordinates to base frame if tf_handler is available
             base_point_3d = point_3d
@@ -403,7 +416,11 @@ class DetectionHandler:
                 if base_coords:
                     base_point_3d = base_coords
                 else:
-                    self.get_logger().warn(f'Failed to convert blue box {box.get("id")} to base frame')
+                    self.get_logger().warn(f'Failed to convert blue box {box.get("id")} to base frame, removing old marker')
+                    # If conversion fails, remove the old marker if it exists
+                    if box_id in self.published_blue_box_ids:
+                        self._remove_blue_box_from_moveit(box_id)
+                        self.published_blue_box_ids.discard(box_id)
                     continue
             
             # Create CollisionObject message
@@ -412,7 +429,7 @@ class DetectionHandler:
             collision_obj.header.frame_id = "base_link"  # Use base_link frame for MoveIt
             collision_obj.header.stamp = self.node.get_clock().now().to_msg()
             
-            collision_obj.id = f"blue_box_{box['id']:03d}"
+            collision_obj.id = box_id
             collision_obj.operation = CollisionObject.ADD  # 0 = ADD
             
             # Set primitive (box)
@@ -437,11 +454,33 @@ class DetectionHandler:
             
             # Publish
             self.moveit_collision_pub.publish(collision_obj)
+            self.published_blue_box_ids.add(box_id)
             self.get_logger().debug(
                 f'Published blue box {collision_obj.id} to /obsFromImg: '
                 f'pos=({base_point_3d[0]:.3f}, {base_point_3d[1]:.3f}, {base_point_3d[2]:.3f}), '
                 f'size=({size_3d["width"]:.3f}, {size_3d["height"]:.3f}, {size_3d["depth"]:.3f})'
             )
+        
+        # Remove boxes that are no longer detected
+        boxes_to_remove = self.published_blue_box_ids - current_box_ids
+        for box_id in boxes_to_remove:
+            self._remove_blue_box_from_moveit(box_id)
+            self.published_blue_box_ids.discard(box_id)
+    
+    def _remove_blue_box_from_moveit(self, box_id):
+        """Remove a blue box from MoveIt planning scene"""
+        from moveit_msgs.msg import CollisionObject
+        from std_msgs.msg import Header
+        
+        collision_obj = CollisionObject()
+        collision_obj.header = Header()
+        collision_obj.header.frame_id = "base_link"
+        collision_obj.header.stamp = self.node.get_clock().now().to_msg()
+        collision_obj.id = box_id
+        collision_obj.operation = CollisionObject.REMOVE  # 1 = REMOVE
+        
+        self.moveit_collision_pub.publish(collision_obj)
+        self.get_logger().debug(f'Removed blue box {box_id} from MoveIt planning scene')
     
     async def handle_request(self, request):
         """Handle detection service request"""
@@ -564,6 +603,140 @@ class DetectionHandler:
                 'health_status': [],
                 'debug_info': json.dumps({'error': str(e), 'traceback': traceback.format_exc()})
             }
+    
+    def measure_box_dimensions_3d(self, bbox_2d, depth_image, mask=None, sample_step=3):
+        """
+        使用深度图测量盒子的实际3D尺寸（基于box_dimensioner方法）
+        
+        该方法参考RealSense SDK的box_dimensioner示例：
+        1. 在检测区域内密集采样3D点
+        2. 使用统计方法去除异常值
+        3. 计算3D边界框得到长宽高
+        
+        Args:
+            bbox_2d: 2D边界框 (x_min, y_min, x_max, y_max) 在原始图像坐标系
+            depth_image: 深度图像（16位，单位：毫米）
+            mask: 可选的掩码（如果提供，只采样掩码内的点）
+            sample_step: 采样步长（像素），默认3（更密集采样以提高精度）
+        
+        Returns:
+            dict: {
+                'width': 长度（米，X方向）,
+                'height': 高度（米，Y方向）,
+                'depth': 宽度（米，Z方向）,
+                'points_3d': 采样到的3D点列表,
+                'min_point': 最小边界点 (x, y, z),
+                'max_point': 最大边界点 (x, y, z),
+                'num_samples': 采样点数
+            } 或 None（如果失败）
+        """
+        if depth_image is None or self.tf_handler is None or self.tf_handler.intrinsics is None:
+            return None
+        
+        x_min, y_min, x_max, y_max = bbox_2d
+        
+        # 确保坐标在图像范围内
+        x_min = max(0, int(x_min))
+        y_min = max(0, int(y_min))
+        x_max = min(depth_image.shape[1], int(x_max))
+        y_max = min(depth_image.shape[0], int(y_max))
+        
+        if x_max <= x_min or y_max <= y_min:
+            return None
+        
+        # 方法1：密集采样3D点（类似box_dimensioner的核心方法）
+        points_3d = []
+        valid_depths = []
+        
+        # 在边界框内密集采样
+        for y in range(y_min, y_max, sample_step):
+            for x in range(x_min, x_max, sample_step):
+                # 如果提供了掩码，检查该点是否在掩码内
+                if mask is not None:
+                    if (y < 0 or y >= mask.shape[0] or 
+                        x < 0 or x >= mask.shape[1] or
+                        mask[y, x] == 0):
+                        continue
+                
+                # 获取深度值
+                depth_mm = depth_image[y, x]
+                
+                # 过滤无效深度（更严格的过滤）
+                if depth_mm <= 0 or depth_mm > 5000:
+                    continue
+                
+                # 转换为3D坐标（使用tf_handler的方法）
+                point_3d = self.tf_handler.pixel_to_3d(x, y, depth_mm)
+                if point_3d is not None:
+                    points_3d.append(point_3d)
+                    valid_depths.append(depth_mm)
+        
+        if len(points_3d) < 8:  # 至少需要8个点才能准确估算尺寸
+            return None
+        
+        # 方法2：使用统计方法去除异常值（类似box_dimensioner的鲁棒性处理）
+        points_array = np.array(points_3d)
+        depths_array = np.array(valid_depths)
+        
+        # 计算深度中位数，去除离群点（深度差异过大可能是背景或噪声）
+        median_depth = np.median(depths_array)
+        depth_std = np.std(depths_array)
+        depth_threshold = median_depth + 3 * depth_std  # 3倍标准差
+        
+        # 过滤异常深度点
+        valid_mask = depths_array <= depth_threshold
+        filtered_points = points_array[valid_mask]
+        
+        if len(filtered_points) < 8:
+            filtered_points = points_array  # 如果过滤后点数太少，使用原始点
+        
+        # 方法3：计算3D边界框（box_dimensioner的核心）
+        # 找到所有点的最小/最大X, Y, Z值
+        min_point = filtered_points.min(axis=0)  # [min_x, min_y, min_z]
+        max_point = filtered_points.max(axis=0)   # [max_x, max_y, max_z]
+        
+        # 计算尺寸（在相机坐标系中）
+        # X方向 = 长度（左右，通常是最长的边）
+        # Y方向 = 高度（上下）
+        # Z方向 = 宽度（前后，距离相机的远近，通常是最短的边）
+        length = float(max_point[0] - min_point[0])   # X方向
+        height = float(max_point[1] - min_point[1])    # Y方向
+        width = float(max_point[2] - min_point[2])      # Z方向
+        
+        # 方法4：如果宽度（Z方向）太小，可能是只看到了一个面
+        # 使用深度变化来估算宽度（类似box_dimensioner处理单视角情况）
+        if width < 0.01:  # 小于1cm，可能只看到一个面
+            z_values = filtered_points[:, 2]
+            z_std = float(np.std(z_values))
+            if z_std > 0.003:  # 如果标准差大于3mm，说明有深度变化
+                # 使用统计方法估算：2倍标准差 + 中位数范围
+                z_range = np.percentile(z_values, 95) - np.percentile(z_values, 5)
+                width = max(z_range, z_std * 2.5)  # 使用更保守的估算
+            else:
+                # 如果深度变化很小，使用像素尺寸估算
+                pixel_width = x_max - x_min
+                avg_depth = float(np.median(z_values))
+                if avg_depth > 0 and self.tf_handler.intrinsics:
+                    pixel_size = avg_depth / self.tf_handler.intrinsics.fx
+                    width = pixel_width * pixel_size * 0.3  # 保守估算为像素宽度的30%
+                else:
+                    width = 0.1  # 默认10cm
+        
+        # 确保最小尺寸合理（至少1cm）
+        length = max(length, 0.01)
+        height = max(height, 0.01)
+        width = max(width, 0.01)
+        
+        return {
+            'width': length,   # X方向（长度）
+            'height': height,  # Y方向（高度）
+            'depth': width,    # Z方向（宽度）
+            'points_3d': filtered_points.tolist(),
+            'min_point': tuple(min_point),
+            'max_point': tuple(max_point),
+            'num_samples': len(filtered_points),
+            'median_depth': float(np.median(depths_array)) if len(depths_array) > 0 else 0.0
+        }
     
     def detect_leaves_with_plantcv(self, cv_image, min_area=None):
         """
@@ -766,10 +939,58 @@ class DetectionHandler:
                         except:
                             pass
                     
-                    # 计算盒子的3D尺寸（使用深度信息）
+                    # 计算盒子的3D尺寸（使用深度图采样方法，基于box_dimensioner算法）
                     box_3d_size = None
-                    if len(valid_depths) > 0 and merged_point_3d and self.tf_handler and self.tf_handler.intrinsics:
-                        # 估算3D尺寸（基于像素尺寸和深度）
+                    if self.current_depth is not None and merged_point_3d and self.tf_handler and self.tf_handler.intrinsics:
+                        try:
+                            # 创建合并后的掩码（在原始图像坐标系，用于限制采样区域）
+                            bbox_2d = (
+                                all_x_min + 20,  # x_min
+                                all_y_min + 20,  # y_min
+                                all_x_max + 20,  # x_max
+                                all_y_max + 20   # y_max
+                            )
+                            
+                            # 创建合并后的掩码（在原始图像坐标系）
+                            merged_mask = np.zeros((self.current_depth.shape[0], self.current_depth.shape[1]), dtype=np.uint8)
+                            for region in group:
+                                contour = region.get('contour')
+                                if contour is not None:
+                                    # 将轮廓坐标从裁剪图像坐标系转换到原始图像坐标系
+                                    adjusted_contour = contour + np.array([20, 20])
+                                    cv2.drawContours(merged_mask, [adjusted_contour], -1, 255, -1)
+                            
+                            # 使用新的3D测量方法（基于box_dimensioner算法）
+                            dimensions = self.measure_box_dimensions_3d(
+                                bbox_2d, 
+                                self.current_depth, 
+                                mask=merged_mask,
+                                sample_step=3  # 每3个像素采样一次（更密集，提高精度）
+                            )
+                            
+                            if dimensions:
+                                box_3d_size = {
+                                    'width': dimensions['width'],
+                                    'height': dimensions['height'],
+                                    'depth': dimensions['depth'],
+                                    'num_samples': dimensions.get('num_samples', 0),
+                                    'min_point': dimensions.get('min_point'),
+                                    'max_point': dimensions.get('max_point')
+                                }
+                        except Exception as e:
+                            self.get_logger().warn(f'盒子3D尺寸测量错误: {e}')
+                            # 如果新方法失败，回退到旧方法
+                            if len(valid_depths) > 0:
+                                depth_m = avg_depth_mm * 0.001
+                                pixel_size = depth_m / self.tf_handler.intrinsics.fx if self.tf_handler.intrinsics.fx > 0 else 0.001
+                                box_3d_size = {
+                                    'width': merged_w * pixel_size,
+                                    'height': merged_h * pixel_size,
+                                    'depth': (max(valid_depths) - min(valid_depths)) * 0.001 if len(valid_depths) > 1 else 0.1
+                                }
+                    
+                    # 如果新方法没有执行或失败，使用旧方法作为后备
+                    if box_3d_size is None and len(valid_depths) > 0 and merged_point_3d and self.tf_handler and self.tf_handler.intrinsics:
                         depth_m = avg_depth_mm * 0.001
                         pixel_size = depth_m / self.tf_handler.intrinsics.fx if self.tf_handler.intrinsics.fx > 0 else 0.001
                         box_3d_size = {
@@ -830,18 +1051,14 @@ class DetectionHandler:
                 # 更严格的条件：L>110（较亮），a<140（偏绿），b>150（很黄）
                 lab_yellow_mask[(lab[:,:,0] > 110) & (lab[:,:,1] < 140) & (lab[:,:,2] > 150)] = 255
                 
-                # 合并HSV和LAB的检测结果（使用AND操作，两个都检测到才认为是黄色胶布）
-                # 这样可以减少误检
-                thresh_yellow_full = cv2.bitwise_and(thresh_yellow_hsv, lab_yellow_mask)
+                # 合并HSV和LAB的检测结果（优先使用OR操作，使检测更敏感）
+                # 优先使用OR操作，使检测更敏感（更容易检测到黄色胶布）
+                thresh_yellow_full = cv2.bitwise_or(thresh_yellow_hsv, lab_yellow_mask)
                 
-                # 如果AND结果太少，则使用OR作为备选（但需要更高的阈值）
-                yellow_pixels_and = np.sum(thresh_yellow_full > 0)
-                yellow_pixels_hsv = np.sum(thresh_yellow_hsv > 0)
-                if yellow_pixels_and < yellow_pixels_hsv * 0.3:  # 如果AND结果太少，使用OR
-                    thresh_yellow_full = cv2.bitwise_or(thresh_yellow_hsv, lab_yellow_mask)
-                    # 但需要额外的形态学处理去除小区域
-                    kernel_medium = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-                    thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_OPEN, kernel_medium, iterations=1)
+                # 形态学处理去除小噪声
+                kernel_medium = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_OPEN, kernel_medium, iterations=1)
+                thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_CLOSE, kernel_medium, iterations=1)
             
             # Morphological processing
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -852,6 +1069,17 @@ class DetectionHandler:
             contours, _ = cv2.findContours(thresh_green, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
             if len(contours) == 0:
+                # 即使没有叶子，如果检测到蓝色盒子，也要返回数据
+                if len(blue_box_coordinates) > 0:
+                    result = f"检测到 {len(blue_box_coordinates)} 个蓝色盒子（无叶子）"
+                    leaf_data = {
+                        'num_leaves': 0,
+                        'num_blue_boxes': len(blue_box_coordinates),
+                        'timestamp': datetime.now().isoformat(),
+                        'coordinates': [],
+                        'blue_boxes': blue_box_coordinates
+                    }
+                    return result, leaf_data, []
                 return "No leaves detected", None, None
             
             # Filtering parameters
@@ -890,6 +1118,17 @@ class DetectionHandler:
                 valid_contours.append(cnt)
             
             if len(valid_contours) == 0:
+                # 即使没有有效叶子，如果检测到蓝色盒子，也要返回数据
+                if len(blue_box_coordinates) > 0:
+                    result = f"检测到 {len(blue_box_coordinates)} 个蓝色盒子（无有效叶子）"
+                    leaf_data = {
+                        'num_leaves': 0,
+                        'num_blue_boxes': len(blue_box_coordinates),
+                        'timestamp': datetime.now().isoformat(),
+                        'coordinates': [],
+                        'blue_boxes': blue_box_coordinates
+                    }
+                    return result, leaf_data, []
                 return "No valid leaves detected", None, None
             
             # Extract coordinates (with depth filtering)
@@ -913,19 +1152,58 @@ class DetectionHandler:
                 perimeter = cv2.arcLength(cnt, True)
                 
                 # Get depth value and 3D coordinates
+                # 使用叶子区域内的密集采样，选择最小深度值（叶子在盒子上方，应该更近）
                 depth_value_mm = 0
                 point_3d = None
                 has_valid_depth = False
                 
                 if self.current_depth is not None and self.tf_handler:
                     try:
-                        if cx < self.current_depth.shape[1] and cy < self.current_depth.shape[0]:
-                            depth_value_mm = int(self.current_depth[cy, cx])
+                        # 方法1: 在叶子轮廓区域内密集采样深度值
+                        # 创建叶子区域的掩码
+                        leaf_mask = np.zeros((self.current_depth.shape[0], self.current_depth.shape[1]), dtype=np.uint8)
+                        # 注意：cnt的坐标需要调整，因为原始图像裁剪了边缘
+                        adjusted_cnt = cnt.copy()
+                        adjusted_cnt[:, :, 0] = adjusted_cnt[:, :, 0] + 20  # x坐标偏移
+                        adjusted_cnt[:, :, 1] = adjusted_cnt[:, :, 1] + 20  # y坐标偏移
+                        cv2.drawContours(leaf_mask, [adjusted_cnt], -1, 255, -1)
+                        
+                        # 在掩码区域内采样深度值（每3个像素采样一次）
+                        leaf_depths = []
+                        for py in range(max(0, y + 20), min(self.current_depth.shape[0], y + h_rect + 20), 3):
+                            for px in range(max(0, x + 20), min(self.current_depth.shape[1], x + w_rect + 20), 3):
+                                if leaf_mask[py, px] > 0:  # 只在叶子区域内采样
+                                    depth_val = self.current_depth[py, px]
+                                    if depth_val > 0 and 100 <= depth_val <= 2000:
+                                        leaf_depths.append(depth_val)
+                        
+                        if len(leaf_depths) > 0:
+                            # 使用最小深度值（叶子在盒子上方，应该更近）
+                            # 但为了去除噪声，使用前20%最小值的平均值
+                            sorted_depths = sorted(leaf_depths)
+                            num_samples = max(1, int(len(sorted_depths) * 0.2))  # 前20%的最小值
+                            depth_value_mm = int(np.mean(sorted_depths[:num_samples]))
                             
                             if depth_value_mm > 0 and 100 <= depth_value_mm <= 2000:
                                 has_valid_depth = True
                                 point_3d = self.tf_handler.pixel_to_3d(cx, cy, depth_value_mm)
-                    except:
+                        else:
+                            # 回退方法：使用中心点附近的区域
+                            if cx < self.current_depth.shape[1] and cy < self.current_depth.shape[0]:
+                                # 使用5x5区域，取有效深度的最小值
+                                y_start = max(0, cy - 2)
+                                y_end = min(self.current_depth.shape[0], cy + 3)
+                                x_start = max(0, cx - 2)
+                                x_end = min(self.current_depth.shape[1], cx + 3)
+                                depth_region = self.current_depth[y_start:y_end, x_start:x_end]
+                                valid_depths = depth_region[(depth_region > 0) & (depth_region >= 100) & (depth_region <= 2000)]
+                                
+                                if len(valid_depths) > 0:
+                                    depth_value_mm = int(np.min(valid_depths))  # 使用最小值（最浅的深度）
+                                    has_valid_depth = True
+                                    point_3d = self.tf_handler.pixel_to_3d(cx, cy, depth_value_mm)
+                    except Exception as e:
+                        self.get_logger().debug(f'Leaf depth sampling error: {e}')
                         pass
                 
                 if not has_valid_depth:
@@ -961,11 +1239,11 @@ class DetectionHandler:
                         if len(yellow_contours) > 0:
                             max_yellow_area = max(cv2.contourArea(c) for c in yellow_contours)
                         
-                        # 黄色区域应该至少占叶子面积的1%，且最大连通区域应该足够大（至少100像素）
-                        min_yellow_area_threshold = max(100, leaf_pixels * 0.01)
+                        # 降低最小区域要求：至少50像素或叶子面积的0.5%（更容易检测）
+                        min_yellow_area_threshold = max(50, leaf_pixels * 0.005)
                         
-                        # 更严格的判断：既要满足比例阈值，又要满足最小区域要求
-                        if (yellow_ratio >= self.yellow_ratio_threshold and 
+                        # 使用OR条件：满足比例阈值或最小区域要求之一即可（更容易检测）
+                        if (yellow_ratio >= self.yellow_ratio_threshold or 
                             max_yellow_area >= min_yellow_area_threshold):
                             has_yellow_tape = True
                             
@@ -1039,6 +1317,17 @@ class DetectionHandler:
             num_detected_leaves = len(leaf_coordinates)
             
             if num_detected_leaves == 0:
+                # 即使深度过滤后没有叶子，如果检测到蓝色盒子，也要返回数据
+                if len(blue_box_coordinates) > 0:
+                    result = f"检测到 {len(blue_box_coordinates)} 个蓝色盒子（叶子深度过滤后）"
+                    leaf_data = {
+                        'num_leaves': 0,
+                        'num_blue_boxes': len(blue_box_coordinates),
+                        'timestamp': datetime.now().isoformat(),
+                        'coordinates': [],
+                        'blue_boxes': blue_box_coordinates
+                    }
+                    return result, leaf_data, []
                 return "No valid leaves detected (after depth filtering)", None, None
             
             # 统计黄色标签检测结果
@@ -1112,17 +1401,24 @@ class DetectionHandler:
                 # Draw bounding box
                 cv2.rectangle(annotated, (x, y), (x_max, y_max), color, 2)
                 
-                # Draw label
+                # Draw label - 增大字体和背景
                 label = f'Leaf {obj_id}'
                 if leaf.get('has_yellow_tape', False):
                     label += ' [Tape]'
-                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                label_y = max(y - 5, label_size[1] + 5)
+                font_scale_leaf = 0.8  # 增大字体
+                thickness_leaf = 2
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale_leaf, thickness_leaf)[0]
+                label_y = max(y - 10, label_size[1] + 10)
                 
-                cv2.rectangle(annotated, (x, label_y - label_size[1] - 5),
-                            (x + label_size[0] + 5, label_y + 5), color, -1)
-                cv2.putText(annotated, label, (x + 2, label_y - 2),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                # 绘制半透明背景（更清晰）
+                overlay = annotated.copy()
+                cv2.rectangle(overlay, (x - 2, label_y - label_size[1] - 8),
+                            (x + label_size[0] + 8, label_y + 8), color, -1)
+                cv2.addWeighted(overlay, 0.7, annotated, 0.3, 0, annotated)
+                cv2.rectangle(annotated, (x - 2, label_y - label_size[1] - 8),
+                            (x + label_size[0] + 8, label_y + 8), color, 2)
+                cv2.putText(annotated, label, (x + 3, label_y - 3),
+                           cv2.FONT_HERSHEY_SIMPLEX, font_scale_leaf, (255, 255, 255), thickness_leaf)
                 
                 # Draw center point
                 cx = leaf['center']['x']
@@ -1130,13 +1426,24 @@ class DetectionHandler:
                 cv2.circle(annotated, (cx, cy), 5, color, -1)
                 cv2.circle(annotated, (cx, cy), 15, color, 2)
                 
-                # Draw 3D coordinates if available
+                # Draw 3D coordinates if available - 增大字体
                 point_3d = leaf.get('point_3d')
                 if point_3d:
                     coord_text = f"Z:{point_3d[2]:.2f}m"
+                    font_scale_coord = 0.6
+                    thickness_coord = 2
+                    coord_text_size = cv2.getTextSize(coord_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale_coord, thickness_coord)[0]
+                    
+                    # 绘制背景
+                    text_bg_y = y_max - 5
+                    overlay = annotated.copy()
+                    cv2.rectangle(overlay, (x + 3, text_bg_y - coord_text_size[1] - 5),
+                                (x + coord_text_size[0] + 8, text_bg_y + 5), (0, 0, 0), -1)
+                    cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+                    
                     cv2.putText(annotated, coord_text,
-                               (x + 5, y_max - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                               (x + 5, text_bg_y),
+                               cv2.FONT_HERSHEY_SIMPLEX, font_scale_coord, (255, 255, 255), thickness_coord)
             
             # 绘制蓝色盒子（显示所有检测到的面）
             blue_box_color = (255, 0, 0)  # 蓝色用于蓝色盒子 (BGR格式)
@@ -1164,17 +1471,24 @@ class DetectionHandler:
                             adjusted_contour = contour + np.array([20, 20])
                             cv2.drawContours(annotated, [adjusted_contour], -1, face_color, 1)
                 
-                # 绘制标签（显示面数）
+                # 绘制标签（显示面数）- 增大字体和背景
                 label = f'Blue Box {obj_id}'
                 if num_faces > 1:
                     label += f' ({num_faces} faces)'
-                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                label_y = max(y - 5, label_size[1] + 5)
+                font_scale_label = 0.8  # 增大字体
+                thickness_label = 2
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale_label, thickness_label)[0]
+                label_y = max(y - 10, label_size[1] + 10)
                 
-                cv2.rectangle(annotated, (x, label_y - label_size[1] - 5),
-                            (x + label_size[0] + 5, label_y + 5), blue_box_color, -1)
-                cv2.putText(annotated, label, (x + 2, label_y - 2),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                # 绘制半透明背景（更清晰）
+                overlay = annotated.copy()
+                cv2.rectangle(overlay, (x - 2, label_y - label_size[1] - 8),
+                            (x + label_size[0] + 8, label_y + 8), blue_box_color, -1)
+                cv2.addWeighted(overlay, 0.7, annotated, 0.3, 0, annotated)
+                cv2.rectangle(annotated, (x - 2, label_y - label_size[1] - 8),
+                            (x + label_size[0] + 8, label_y + 8), blue_box_color, 2)
+                cv2.putText(annotated, label, (x + 3, label_y - 3),
+                           cv2.FONT_HERSHEY_SIMPLEX, font_scale_label, (255, 255, 255), thickness_label)
                 
                 # 绘制中心点
                 cx = blue_box['center']['x']
@@ -1182,23 +1496,46 @@ class DetectionHandler:
                 cv2.circle(annotated, (cx, cy), 5, blue_box_color, -1)
                 cv2.circle(annotated, (cx, cy), 15, blue_box_color, 2)
                 
-                # 如果可用，绘制3D坐标和尺寸
+                # 如果可用，绘制3D坐标和尺寸 - 增大字体，改善布局
                 point_3d = blue_box.get('point_3d')
                 size_3d = blue_box.get('size_3d')
                 if point_3d:
-                    coord_text = f"Z:{point_3d[2]:.2f}m"
+                    font_scale_info = 0.7  # 增大信息字体
+                    thickness_info = 2
+                    line_height = 25  # 行间距
+                    
+                    # 只显示尺寸信息（长宽高）
                     if size_3d:
-                        coord_text += f" ({size_3d['width']:.2f}x{size_3d['height']:.2f}x{size_3d['depth']:.2f}m)"
-                    cv2.putText(annotated, coord_text,
-                               (x + 5, y_max - 5),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, blue_box_color, 1)
+                        size_text = f"L:{size_3d['width']*100:.1f}cm  H:{size_3d['height']*100:.1f}cm  W:{size_3d['depth']*100:.1f}cm"
+                        size_text_size = cv2.getTextSize(size_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale_info, thickness_info)[0]
+                        
+                        # 绘制背景
+                        text_bg_y = y_max - 5
+                        overlay = annotated.copy()
+                        cv2.rectangle(overlay, (x + 3, text_bg_y - size_text_size[1] - 5),
+                                    (x + size_text_size[0] + 8, text_bg_y + 5), (0, 0, 0), -1)
+                        cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+                        
+                        cv2.putText(annotated, size_text,
+                                   (x + 5, text_bg_y),
+                                   cv2.FONT_HERSHEY_SIMPLEX, font_scale_info, (255, 255, 255), thickness_info)
             
-            # Display total count
+            # Display total count - 增大字体和背景
             total_text = f"Leaves: {len(leaf_coordinates)}"
             if len(blue_box_coordinates) > 0:
                 total_text += f" | Blue Boxes: {len(blue_box_coordinates)}"
+            font_scale_total = 1.0
+            thickness_total = 3
+            total_text_size = cv2.getTextSize(total_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale_total, thickness_total)[0]
+            
+            # 绘制半透明背景
+            overlay = annotated.copy()
+            cv2.rectangle(overlay, (8, 8),
+                        (total_text_size[0] + 12, total_text_size[1] + 20), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.6, annotated, 0.4, 0, annotated)
+            
             cv2.putText(annotated, total_text, (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale_total, (0, 255, 0), thickness_total)
             
             return annotated
             

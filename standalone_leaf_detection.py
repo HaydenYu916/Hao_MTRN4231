@@ -17,7 +17,7 @@ import sys
 class StandaloneLeafDetector:
     """独立的叶子检测器，不依赖ROS2"""
     
-    def __init__(self, min_area=2000, detect_yellow=True, yellow_ratio_threshold=0.08, 
+    def __init__(self, min_area=2000, detect_yellow=True, yellow_ratio_threshold=0.05, 
                  yellow_hsv_lower=None, yellow_hsv_upper=None, detect_blue_box=True,
                  blue_min_area=3000, blue_hsv_lower=None, blue_hsv_upper=None):
         """
@@ -26,7 +26,7 @@ class StandaloneLeafDetector:
         Args:
             min_area: 最小叶子面积阈值
             detect_yellow: 是否检测黄色区域（用于检测贴有黄色胶布的叶子）
-            yellow_ratio_threshold: 黄色比例阈值（默认0.08，即8%，提高以减少误检）
+            yellow_ratio_threshold: 黄色比例阈值（默认0.05，即5%，降低以更容易检测黄色胶布）
             yellow_hsv_lower: HSV颜色范围下限（默认[20, 100, 100]，更严格以检测亮黄色胶布）
             yellow_hsv_upper: HSV颜色范围上限（默认[30, 255, 255]）
             detect_blue_box: 是否检测蓝色盒子（默认True）
@@ -47,7 +47,8 @@ class StandaloneLeafDetector:
         self.detect_blue_box = detect_blue_box
         self.blue_min_area = blue_min_area
         # 蓝色在HSV中：H值在100-130之间（蓝色范围），S和V值较高
-        self.blue_hsv_lower = blue_hsv_lower if blue_hsv_lower is not None else [100, 50, 50]
+        # 使用调整后的参数：S Lower=147 以减少误检
+        self.blue_hsv_lower = blue_hsv_lower if blue_hsv_lower is not None else [100, 147, 50]
         self.blue_hsv_upper = blue_hsv_upper if blue_hsv_upper is not None else [130, 255, 255]
         
         # PlantCV设置
@@ -141,6 +142,124 @@ class StandaloneLeafDetector:
             print(f'✗ 3D反投影错误: {e}')
             return None
     
+    def measure_box_dimensions_3d(self, bbox_2d, depth_image, mask=None, sample_step=2):
+        """
+        使用密集深度采样测量盒子的实际3D尺寸（高精度方法）
+        
+        该方法通过密集采样3D点并计算3D边界框来获得准确的尺寸：
+        1. 在检测区域内密集采样3D点
+        2. 使用统计方法去除异常值（离群点）
+        3. 计算3D边界框得到长宽高
+        
+        Args:
+            bbox_2d: 2D边界框 (x_min, y_min, x_max, y_max) 在原始图像坐标系
+            depth_image: 深度图像（numpy数组，单位：毫米）
+            mask: 可选的掩码（如果提供，只采样掩码内的点）
+            sample_step: 采样步长（像素），默认2（更密集采样以提高精度）
+        
+        Returns:
+            dict: {
+                'width': 宽度（米，X方向）,
+                'height': 高度（米，Y方向）,
+                'depth': 深度（米，Z方向，距离相机）,
+                'min_point': 最小边界点 (x, y, z),
+                'max_point': 最大边界点 (x, y, z),
+                'num_samples': 采样点数,
+                'center_3d': 3D中心点 (x, y, z)
+            } 或 None（如果失败）
+        """
+        if depth_image is None or self.intrinsics is None:
+            return None
+        
+        x_min, y_min, x_max, y_max = bbox_2d
+        
+        # 确保坐标在图像范围内
+        x_min = max(0, int(x_min))
+        y_min = max(0, int(y_min))
+        x_max = min(depth_image.shape[1], int(x_max))
+        y_max = min(depth_image.shape[0], int(y_max))
+        
+        if x_max <= x_min or y_max <= y_min:
+            return None
+        
+        # 方法1：密集采样3D点
+        points_3d = []
+        valid_depths = []
+        
+        # 在边界框内密集采样（sample_step=2表示每2个像素采样一次）
+        for y in range(y_min, y_max, sample_step):
+            for x in range(x_min, x_max, sample_step):
+                # 如果提供了掩码，检查该点是否在掩码内
+                if mask is not None:
+                    if (y < 0 or y >= mask.shape[0] or 
+                        x < 0 or x >= mask.shape[1] or
+                        mask[y, x] == 0):
+                        continue
+                
+                # 获取深度值
+                depth_mm = depth_image[y, x]
+                
+                # 过滤无效深度
+                if depth_mm <= 0 or depth_mm > 5000:
+                    continue
+                
+                # 转换为3D坐标
+                point_3d = self.pixel_to_3d(x, y, depth_mm)
+                if point_3d is not None:
+                    points_3d.append(point_3d)
+                    valid_depths.append(depth_mm)
+        
+        if len(points_3d) < 8:  # 至少需要8个点才能准确估算尺寸
+            return None
+        
+        # 方法2：使用统计方法去除异常值（提高鲁棒性）
+        points_array = np.array(points_3d)
+        depths_array = np.array(valid_depths)
+        
+        # 计算深度中位数，去除离群点（深度差异过大可能是背景或噪声）
+        median_depth = np.median(depths_array)
+        depth_std = np.std(depths_array)
+        depth_threshold = median_depth + 3 * depth_std  # 3倍标准差
+        
+        # 过滤异常深度点
+        valid_mask = depths_array <= depth_threshold
+        filtered_points = points_array[valid_mask]
+        
+        if len(filtered_points) < 8:
+            filtered_points = points_array  # 如果过滤后点数太少，使用原始点
+        
+        # 方法3：计算3D边界框
+        # 找到所有点的最小/最大X, Y, Z值
+        min_point = filtered_points.min(axis=0)  # [min_x, min_y, min_z]
+        max_point = filtered_points.max(axis=0)   # [max_x, max_y, max_z]
+        center_3d = (min_point + max_point) / 2
+        
+        # 计算尺寸（在相机坐标系中）
+        # X方向 = 左右（宽度）
+        # Y方向 = 上下（高度）
+        # Z方向 = 前后（深度，距离相机）
+        width = float(max_point[0] - min_point[0])   # X方向
+        height = float(max_point[1] - min_point[1])   # Y方向
+        depth = float(max_point[2] - min_point[2])    # Z方向
+        
+        # 如果深度（Z方向）太小，可能是只看到了一个面，使用统计方法估算
+        if depth < 0.01:  # 小于1cm，可能是平面视图
+            # 使用深度标准差作为深度的估算
+            z_values = filtered_points[:, 2]
+            depth = float(np.std(z_values)) * 2  # 使用2倍标准差作为深度估算
+            if depth < 0.01:
+                depth = 0.1  # 如果还是太小，使用默认值
+        
+        return {
+            'width': width,
+            'height': height,
+            'depth': depth,
+            'min_point': tuple(min_point),
+            'max_point': tuple(max_point),
+            'num_samples': len(filtered_points),
+            'center_3d': tuple(center_3d)
+        }
+    
     def detect_leaves(self, cv_image, depth_image, frame_count=0):
         """
         使用PlantCV检测叶子
@@ -198,18 +317,14 @@ class StandaloneLeafDetector:
                 # 更严格的条件：L>110（较亮），a<140（偏绿），b>150（很黄）
                 lab_yellow_mask[(lab[:,:,0] > 110) & (lab[:,:,1] < 140) & (lab[:,:,2] > 150)] = 255
                 
-                # 合并HSV和LAB的检测结果（使用AND操作，两个都检测到才认为是黄色胶布）
-                # 这样可以减少误检
-                thresh_yellow_full = cv2.bitwise_and(thresh_yellow_hsv, lab_yellow_mask)
+                # 合并HSV和LAB的检测结果（优先使用OR操作，使检测更敏感）
+                # 优先使用OR操作，使检测更敏感（更容易检测到黄色胶布）
+                thresh_yellow_full = cv2.bitwise_or(thresh_yellow_hsv, lab_yellow_mask)
                 
-                # 如果AND结果太少，则使用OR作为备选（但需要更高的阈值）
-                yellow_pixels_and = np.sum(thresh_yellow_full > 0)
-                yellow_pixels_hsv = np.sum(thresh_yellow_hsv > 0)
-                if yellow_pixels_and < yellow_pixels_hsv * 0.3:  # 如果AND结果太少，使用OR
-                    thresh_yellow_full = cv2.bitwise_or(thresh_yellow_hsv, lab_yellow_mask)
-                    # 但需要额外的形态学处理去除小区域
-                    kernel_medium = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-                    thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_OPEN, kernel_medium, iterations=1)
+                # 形态学处理去除小噪声
+                kernel_medium = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_OPEN, kernel_medium, iterations=1)
+                thresh_yellow_full = cv2.morphologyEx(thresh_yellow_full, cv2.MORPH_CLOSE, kernel_medium, iterations=1)
             
             # 先使用绿色检测进行初步处理
             thresh = thresh_green.copy()
@@ -413,17 +528,60 @@ class StandaloneLeafDetector:
                         except:
                             pass
                     
-                    # 计算盒子的3D尺寸（使用深度信息）
+                    # 计算盒子的3D尺寸（使用高精度密集采样方法）
                     box_3d_size = None
-                    if len(valid_depths) > 0 and merged_point_3d:
-                        # 估算3D尺寸（基于像素尺寸和深度）
-                        depth_m = avg_depth_mm * 0.001
-                        pixel_size = depth_m / self.intrinsics.fx if self.intrinsics else 0.001
-                        box_3d_size = {
-                            'width': merged_w * pixel_size,
-                            'height': merged_h * pixel_size,
-                            'depth': (max(valid_depths) - min(valid_depths)) * 0.001 if len(valid_depths) > 1 else 0.1
-                        }
+                    measured_dimensions = None
+                    if depth_image is not None and merged_point_3d:
+                        # 使用密集深度采样方法计算精确的3D尺寸
+                        bbox_for_measurement = (
+                            all_x_min,  # x_min
+                            all_y_min,  # y_min
+                            all_x_max,  # x_max
+                            all_y_max   # y_max
+                        )
+                        
+                        # 创建蓝色区域的掩码（可选，用于更精确的采样）
+                        blue_mask = None
+                        try:
+                            # 创建掩码：在合并后的边界框内，只采样蓝色区域
+                            blue_mask = np.zeros_like(depth_image, dtype=np.uint8)
+                            for region in group:
+                                x_reg, y_reg, w_reg, h_reg = region['bbox']
+                                # 绘制每个面的区域（简单矩形掩码）
+                                # 注意：这里用简单的矩形，如果需要更精确可以用轮廓
+                                cv2.rectangle(blue_mask, 
+                                            (x_reg, y_reg), 
+                                            (x_reg + w_reg, y_reg + h_reg), 
+                                            255, -1)
+                        except:
+                            blue_mask = None
+                        
+                        # 使用高精度方法测量
+                        measured_dimensions = self.measure_box_dimensions_3d(
+                            bbox_for_measurement,
+                            depth_image,
+                            mask=blue_mask,
+                            sample_step=2  # 每2个像素采样一次，平衡精度和速度
+                        )
+                        
+                        if measured_dimensions:
+                            box_3d_size = {
+                                'width': measured_dimensions['width'],
+                                'height': measured_dimensions['height'],
+                                'depth': measured_dimensions['depth']
+                            }
+                            # 如果有测量结果，使用更精确的中心点
+                            if 'center_3d' in measured_dimensions:
+                                merged_point_3d = measured_dimensions['center_3d']
+                        else:
+                            # 如果高精度方法失败，回退到简单估算
+                            depth_m = avg_depth_mm * 0.001
+                            pixel_size = depth_m / self.intrinsics.fx if self.intrinsics else 0.001
+                            box_3d_size = {
+                                'width': merged_w * pixel_size,
+                                'height': merged_h * pixel_size,
+                                'depth': (max(valid_depths) - min(valid_depths)) * 0.001 if len(valid_depths) > 1 else 0.1
+                            }
                     
                     # 保存完整的蓝色盒子信息
                     blue_box_info = {
@@ -451,10 +609,17 @@ class StandaloneLeafDetector:
                     
                     # 调试信息
                     if frame_count <= 5:
+                        method_used = "密集采样（高精度）" if measured_dimensions else "简单估算（回退）"
                         print(f'    ✓ 蓝色盒子 {blue_box_idx}: {len(group)}个面, 总面积={merged_area:.0f}, '
                               f'合并尺寸={merged_w}x{merged_h}, 深度={avg_depth_mm}mm')
                         if merged_point_3d:
                             print(f'      3D位置: X={merged_point_3d[0]:.3f}m, Y={merged_point_3d[1]:.3f}m, Z={merged_point_3d[2]:.3f}m')
+                        if box_3d_size:
+                            print(f'      3D尺寸: 宽度={box_3d_size["width"]:.3f}m, '
+                                  f'高度={box_3d_size["height"]:.3f}m, '
+                                  f'深度={box_3d_size["depth"]:.3f}m [{method_used}]')
+                            if measured_dimensions and 'num_samples' in measured_dimensions:
+                                print(f'      采样点数: {measured_dimensions["num_samples"]} (步长=2像素)')
                     
                     blue_box_idx += 1
                 
@@ -689,11 +854,11 @@ class StandaloneLeafDetector:
                         if len(yellow_contours) > 0:
                             max_yellow_area = max(cv2.contourArea(c) for c in yellow_contours)
                         
-                        # 黄色区域应该至少占叶子面积的1%，且最大连通区域应该足够大（至少100像素）
-                        min_yellow_area_threshold = max(100, leaf_pixels * 0.01)
+                        # 降低最小区域要求：至少50像素或叶子面积的0.5%（更容易检测）
+                        min_yellow_area_threshold = max(50, leaf_pixels * 0.005)
                         
-                        # 更严格的判断：既要满足比例阈值，又要满足最小区域要求
-                        if (yellow_ratio >= self.yellow_ratio_threshold and 
+                        # 使用OR条件：满足比例阈值或最小区域要求之一即可（更容易检测）
+                        if (yellow_ratio >= self.yellow_ratio_threshold or 
                             max_yellow_area >= min_yellow_area_threshold):
                             has_yellow_tape = True
                             
@@ -1330,8 +1495,8 @@ def main():
     parser.add_argument(
         '--yellow-threshold',
         type=float,
-        default=0.08,
-        help='黄色比例阈值（默认: 0.08，即8%%，提高以减少误检）'
+        default=0.05,
+        help='黄色比例阈值（默认: 0.05，即5%%，降低以更容易检测黄色胶布）'
     )
     parser.add_argument(
         '--yellow-hsv-lower',
@@ -1365,8 +1530,8 @@ def main():
         type=int,
         nargs=3,
         metavar=('H', 'S', 'V'),
-        default=[100, 50, 50],
-        help='蓝色HSV颜色范围下限（默认: 100 50 50）'
+        default=[100, 147, 50],
+        help='蓝色HSV颜色范围下限（默认: 100 147 50，S值提高以减少误检）'
     )
     parser.add_argument(
         '--blue-hsv-upper',

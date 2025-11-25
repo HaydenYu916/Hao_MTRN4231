@@ -315,18 +315,21 @@ class LeafVisualizationNode(Node):
     
     def update_blue_box_markers(self, blue_boxes):
         """
-        Update RViz markers for blue boxes with smoothing and intelligent matching
+        Update RViz markers for blue boxes (obstacles)
+        Simplified: All boxes are treated as obstacles, no box_id distinction
+        Aggressive cleanup: Delete all unmatched markers to prevent residues
         
         Args:
             blue_boxes: List of blue box dictionaries
         """
+        marker_array = MarkerArray()
+        
         if not blue_boxes:
-            # Clear all blue box markers
-            marker_array = MarkerArray()
-            # Delete all existing blue box markers
+            # No boxes detected: delete ALL existing markers
             for pos_key, box_info in list(self.smoothed_blue_box_positions.items()):
                 marker_id = int(box_info.get('id', 0))
                 frame_id = box_info.get('frame', 'base_link')
+                
                 delete_marker = Marker()
                 delete_marker.header.frame_id = frame_id
                 delete_marker.header.stamp = self.get_clock().now().to_msg()
@@ -334,62 +337,31 @@ class LeafVisualizationNode(Node):
                 delete_marker.id = marker_id
                 delete_marker.action = Marker.DELETE
                 marker_array.markers.append(delete_marker)
-                self.get_logger().debug(f'Deleting blue box marker {pos_key} (marker_id={marker_id})')
+                
+                if marker_id in self.all_blue_box_marker_ids:
+                    self.all_blue_box_marker_ids.remove(marker_id)
             
             if marker_array.markers:
                 self.blue_box_marker_pub.publish(marker_array)
                 self.get_logger().info(f'Deleted {len(marker_array.markers)} blue box markers (no boxes detected)')
             
-            # Clear smoothed positions and tracking sets
             self.smoothed_blue_box_positions.clear()
             self.all_blue_box_marker_ids.clear()
             self.last_blue_box_count = 0
             return
         
         try:
-            marker_array = MarkerArray()
             current_box_count = len(blue_boxes)
             
-            # If box count changed significantly, force cleanup of all old markers
-            # This handles cases where boxes are merged or split
-            if abs(current_box_count - self.last_blue_box_count) > 0:
-                if self.last_blue_box_count > 0:
-                    self.get_logger().info(
-                        f'Blue box count changed: {self.last_blue_box_count} → {current_box_count}, '
-                        f'forcing cleanup of old markers'
-                    )
-                    # Delete all existing markers first
-                    for pos_key, box_info in list(self.smoothed_blue_box_positions.items()):
-                        marker_id = int(box_info.get('id', 0))
-                        frame_id = box_info.get('frame', 'base_link')
-                        
-                        delete_marker = Marker()
-                        delete_marker.header.frame_id = frame_id
-                        delete_marker.header.stamp = self.get_clock().now().to_msg()
-                        delete_marker.ns = "blue_boxes"
-                        delete_marker.id = marker_id
-                        delete_marker.action = Marker.DELETE
-                        marker_array.markers.append(delete_marker)
-                        
-                        if marker_id in self.all_blue_box_marker_ids:
-                            self.all_blue_box_marker_ids.remove(marker_id)
-                    
-                    # Clear all tracked positions
-                    self.smoothed_blue_box_positions.clear()
+            # 如果检测到的盒子数量发生变化，更激进地清理（防止两个盒子拼在一起时的残留）
+            box_count_changed = (current_box_count != self.last_blue_box_count)
             
-            self.last_blue_box_count = current_box_count
+            # Match current boxes to existing positions (by position only, no box_id)
+            matched_positions = set()
+            position_to_box_map = {}  # Map from position key to box index
             
-            # Now match current boxes to existing markers based on position
-            # This handles cases where box IDs are reassigned but boxes are in similar positions
-            box_to_pos_key_map = {}  # Map from box_id to matched pos_key
-            matched_positions = set()  # Track which old positions have been matched
-            
-            # First pass: Try to match by position (for boxes that moved slightly)
-            for box in blue_boxes:
-                box_id = box.get('id')
-                if box_id is None:
-                    continue
-                
+            # First pass: Match boxes by position proximity
+            for box_idx, box in enumerate(blue_boxes):
                 point_3d = box.get('point_3d')
                 if point_3d is None:
                     continue
@@ -399,36 +371,70 @@ class LeafVisualizationNode(Node):
                 else:
                     continue
                 
-                # Try to find a matching old position based on proximity
+                # Try to find matching existing position
                 best_match = None
                 best_distance = float('inf')
                 
-                for pos_key, old_info in self.smoothed_blue_box_positions.items():
-                    if pos_key in matched_positions:
-                        continue  # Already matched
+                for existing_pos_key, old_info in self.smoothed_blue_box_positions.items():
+                    if existing_pos_key in matched_positions:
+                        continue
                     
                     old_pos = old_info.get('pos', [0, 0, 0])
                     distance = ((raw_x - old_pos[0])**2 + 
                                (raw_y - old_pos[1])**2 + 
                                (raw_z - old_pos[2])**2)**0.5
                     
-                    if distance < self.position_match_threshold and distance < best_distance:
-                        best_match = pos_key
+                    # 如果盒子数量变化，使用更严格的匹配阈值
+                    match_threshold = self.position_match_threshold * 0.5 if box_count_changed else self.position_match_threshold
+                    
+                    if distance < match_threshold and distance < best_distance:
+                        best_match = existing_pos_key
                         best_distance = distance
                 
-                # If we found a close match, reuse that marker
                 if best_match is not None:
+                    # Reuse existing position
                     matched_positions.add(best_match)
-                    box_to_pos_key_map[box_id] = best_match
-                    # Update the box_id in the tracked position
-                    self.smoothed_blue_box_positions[best_match]['box_id'] = box_id
-                    self.get_logger().debug(
-                        f'Matched box {box_id} to existing marker {best_match} '
-                        f'(distance: {best_distance:.3f}m)'
-                    )
+                    position_to_box_map[best_match] = box_idx
+                else:
+                    # New position - create new key
+                    pos_key = f"obstacle_{int(raw_x*20)}_{int(raw_y*20)}_{int(raw_z*20)}"
+                    position_to_box_map[pos_key] = box_idx
             
-            # Delete markers for old positions that weren't matched
-            boxes_to_delete = []
+            # 如果盒子数量减少（比如两个盒子拼成一个），删除所有旧标记并重新创建
+            if box_count_changed and current_box_count < self.last_blue_box_count:
+                # 删除所有现有标记
+                for pos_key, box_info in list(self.smoothed_blue_box_positions.items()):
+                    marker_id = int(box_info.get('id', 0))
+                    frame_id = box_info.get('frame', 'base_link')
+                    
+                    delete_marker = Marker()
+                    delete_marker.header.frame_id = frame_id
+                    delete_marker.header.stamp = self.get_clock().now().to_msg()
+                    delete_marker.ns = "blue_boxes"
+                    delete_marker.id = marker_id
+                    delete_marker.action = Marker.DELETE
+                    marker_array.markers.append(delete_marker)
+                    
+                    if marker_id in self.all_blue_box_marker_ids:
+                        self.all_blue_box_marker_ids.remove(marker_id)
+                
+                # 清空跟踪字典，强制重新创建所有标记
+                self.smoothed_blue_box_positions.clear()
+                matched_positions.clear()
+                position_to_box_map = {}
+                
+                # 重新创建位置映射
+                for box_idx, box in enumerate(blue_boxes):
+                    point_3d = box.get('point_3d')
+                    if point_3d is None:
+                        continue
+                    
+                    if isinstance(point_3d, (list, tuple)):
+                        raw_x, raw_y, raw_z = float(point_3d[0]), float(point_3d[1]), float(point_3d[2])
+                        pos_key = f"obstacle_{int(raw_x*20)}_{int(raw_y*20)}_{int(raw_z*20)}"
+                        position_to_box_map[pos_key] = box_idx
+            
+            # Delete ALL unmatched old markers (aggressive cleanup to prevent residues)
             for pos_key in list(self.smoothed_blue_box_positions.keys()):
                 if pos_key not in matched_positions:
                     box_info = self.smoothed_blue_box_positions[pos_key]
@@ -443,110 +449,88 @@ class LeafVisualizationNode(Node):
                     delete_marker.action = Marker.DELETE
                     marker_array.markers.append(delete_marker)
                     
-                    # Remove from tracking sets
                     if marker_id in self.all_blue_box_marker_ids:
                         self.all_blue_box_marker_ids.remove(marker_id)
                     
-                    boxes_to_delete.append(pos_key)
-                    self.get_logger().debug(f'Marking blue box {pos_key} (marker_id={marker_id}) for deletion (not matched)')
+                    # Remove from tracking immediately
+                    del self.smoothed_blue_box_positions[pos_key]
             
-            # Remove deleted boxes from dictionary
-            for pos_key in boxes_to_delete:
-                del self.smoothed_blue_box_positions[pos_key]
-            
-            # Now create/update markers for current boxes
-            for box in blue_boxes:
-                box_id = box.get('id')
-                if box_id is None:
-                    continue
-                
+            # Create/update markers for all current boxes
+            for pos_key, box_idx in position_to_box_map.items():
+                box = blue_boxes[box_idx]
                 point_3d = box.get('point_3d')
                 size_3d = box.get('size_3d')
                 
                 if point_3d is None or size_3d is None:
                     continue
                 
-                # Convert point_3d to list if it's a tuple
                 if isinstance(point_3d, (list, tuple)):
                     raw_x, raw_y, raw_z = float(point_3d[0]), float(point_3d[1]), float(point_3d[2])
                 else:
                     continue
                 
-                # Get box dimensions
                 width = float(size_3d.get('width', 0.1))
                 height = float(size_3d.get('height', 0.1))
                 depth = float(size_3d.get('depth', 0.1))
                 
-                # Determine frame_id based on coordinate values
-                # If coordinates are in camera frame, they're typically small values (0-2m range)
-                # If coordinates are in base_link frame, they might be larger
-                # For now, use base_link as default (since boxes are published to MoveIt in base_link)
-                # If TF tree is correct, RViz will handle frame conversion automatically
                 frame_id = "base_link"
-                
-                # Use matched pos_key if available, otherwise create new one based on position
-                if box_id in box_to_pos_key_map:
-                    pos_key = box_to_pos_key_map[box_id]
-                else:
-                    # Create a unique key based on position (rounded to 5cm for stability)
-                    pos_key = f"blue_box_{int(raw_x*20)}_{int(raw_y*20)}_{int(raw_z*20)}"
                 
                 # Generate or get marker ID
                 if pos_key not in self.smoothed_blue_box_positions:
                     marker_id = self.blue_box_marker_counter
                     self.blue_box_marker_counter += 1
-                    # Initialize smoothed position and size
                     self.smoothed_blue_box_positions[pos_key] = {
                         'id': marker_id,
                         'pos': [raw_x, raw_y, raw_z],
                         'size': [width, height, depth],
-                        'frame': frame_id,
-                        'box_id': box_id
+                        'frame': frame_id
                     }
                     self.all_blue_box_marker_ids.add(marker_id)
-                    self.get_logger().debug(f'Created new blue box marker {pos_key} (box_id={box_id}) with marker_id={marker_id}')
+                    x, y, z = raw_x, raw_y, raw_z
+                    w, h, d = width, height, depth
                 else:
                     marker_id = self.smoothed_blue_box_positions[pos_key]['id']
                     frame_id = self.smoothed_blue_box_positions[pos_key]['frame']
-                    # Update box_id in case it changed
-                    self.smoothed_blue_box_positions[pos_key]['box_id'] = box_id
-                
-                # Apply smoothing filter for position
-                old_pos = self.smoothed_blue_box_positions[pos_key]['pos']
-                smoothed_x = old_pos[0] * self.smoothing_factor + raw_x * (1 - self.smoothing_factor)
-                smoothed_y = old_pos[1] * self.smoothing_factor + raw_y * (1 - self.smoothing_factor)
-                smoothed_z = old_pos[2] * self.smoothing_factor + raw_z * (1 - self.smoothing_factor)
-                
-                # Apply smoothing for size (less aggressive)
-                old_size = self.smoothed_blue_box_positions[pos_key]['size']
-                size_smoothing = 0.8  # More aggressive smoothing for size
-                smoothed_w = old_size[0] * size_smoothing + width * (1 - size_smoothing)
-                smoothed_h = old_size[1] * size_smoothing + height * (1 - size_smoothing)
-                smoothed_d = old_size[2] * size_smoothing + depth * (1 - size_smoothing)
-                
-                # Check if update is needed (change exceeds threshold)
-                change = ((smoothed_x - old_pos[0])**2 + 
-                         (smoothed_y - old_pos[1])**2 + 
-                         (smoothed_z - old_pos[2])**2)**0.5
-                
-                if change < self.min_update_threshold:
-                    # Change too small, use old position
-                    x, y, z = old_pos
-                    w, h, d = old_size
-                else:
-                    # Update position and size
+                    
+                    # Update position and size with smoothing
+                    old_pos = self.smoothed_blue_box_positions[pos_key]['pos']
+                    
+                    # Calculate distance moved
+                    distance_moved = ((raw_x - old_pos[0])**2 + 
+                                    (raw_y - old_pos[1])**2 + 
+                                    (raw_z - old_pos[2])**2)**0.5
+                    
+                    if distance_moved > self.position_match_threshold:
+                        # Large movement: fast response (less smoothing)
+                        fast_smoothing = 0.2
+                        smoothed_x = old_pos[0] * fast_smoothing + raw_x * (1 - fast_smoothing)
+                        smoothed_y = old_pos[1] * fast_smoothing + raw_y * (1 - fast_smoothing)
+                        smoothed_z = old_pos[2] * fast_smoothing + raw_z * (1 - fast_smoothing)
+                    else:
+                        # Small movement: normal smoothing
+                        smoothed_x = old_pos[0] * self.smoothing_factor + raw_x * (1 - self.smoothing_factor)
+                        smoothed_y = old_pos[1] * self.smoothing_factor + raw_y * (1 - self.smoothing_factor)
+                        smoothed_z = old_pos[2] * self.smoothing_factor + raw_z * (1 - self.smoothing_factor)
+                    
+                    old_size = self.smoothed_blue_box_positions[pos_key]['size']
+                    size_smoothing = 0.8
+                    smoothed_w = old_size[0] * size_smoothing + width * (1 - size_smoothing)
+                    smoothed_h = old_size[1] * size_smoothing + height * (1 - size_smoothing)
+                    smoothed_d = old_size[2] * size_smoothing + depth * (1 - size_smoothing)
+                    
+                    # Update stored position and size
                     self.smoothed_blue_box_positions[pos_key]['pos'] = [smoothed_x, smoothed_y, smoothed_z]
                     self.smoothed_blue_box_positions[pos_key]['size'] = [smoothed_w, smoothed_h, smoothed_d]
                     x, y, z = smoothed_x, smoothed_y, smoothed_z
                     w, h, d = smoothed_w, smoothed_h, smoothed_d
                 
-                # Create box marker
+                # Create obstacle marker (blue)
                 marker = Marker()
                 marker.header.frame_id = frame_id
                 marker.header.stamp = self.get_clock().now().to_msg()
                 marker.ns = "blue_boxes"
                 marker.id = marker_id
-                marker.type = Marker.CUBE  # Use CUBE for box visualization
+                marker.type = Marker.CUBE
                 marker.action = Marker.ADD
                 
                 marker.pose.position.x = x
@@ -559,43 +543,32 @@ class LeafVisualizationNode(Node):
                 marker.pose.orientation.w = 1.0
                 
                 # Set box dimensions
-                marker.scale.x = max(w, 0.01)  # Minimum 1cm
+                marker.scale.x = max(w, 0.01)
                 marker.scale.y = max(h, 0.01)
                 marker.scale.z = max(d, 0.01)
                 
-                # Blue color (RGB: 0, 0, 1)
+                # Blue color for obstacles (RGB: 0, 0, 1) - bright blue
+                # 仿照叶子显示方式，统一显示为蓝色
                 marker.color.r = 0.0
                 marker.color.g = 0.0
                 marker.color.b = 1.0
-                marker.color.a = 0.6  # Semi-transparent
+                marker.color.a = 0.8  # 与叶子相同的透明度
                 
-                marker.lifetime.sec = 0  # 0 = permanent, until deleted
+                marker.lifetime.sec = 0  # Permanent until deleted
                 
                 marker_array.markers.append(marker)
             
-            # Always publish marker array (even if only deletions or only additions)
-            # This ensures old markers are properly removed and new ones are displayed
-            num_add_markers = len([m for m in marker_array.markers if m.action == Marker.ADD])
-            num_delete_markers = len([m for m in marker_array.markers if m.action == Marker.DELETE])
+            self.last_blue_box_count = current_box_count
             
-            # Always publish, even if only deletions (to ensure old markers are removed)
+            # Always publish marker array
             if len(marker_array.markers) > 0:
                 self.blue_box_marker_pub.publish(marker_array)
-                if num_delete_markers > 0:
-                    self.get_logger().info(
-                        f'Blue boxes: Published {num_add_markers} markers, deleted {num_delete_markers} old markers'
-                    )
-                elif num_add_markers > 0:
+                num_add = len([m for m in marker_array.markers if m.action == Marker.ADD])
+                num_delete = len([m for m in marker_array.markers if m.action == Marker.DELETE])
+                if num_delete > 0 or num_add > 0:
                     self.get_logger().debug(
-                        f'Blue boxes: Published {num_add_markers} markers'
+                        f'Blue boxes (obstacles): {num_add} active, {num_delete} deleted'
                     )
-            elif len(self.smoothed_blue_box_positions) > 0:
-                # Edge case: no current boxes but we still have tracked positions
-                # This shouldn't happen, but if it does, force delete all
-                self.get_logger().warn(
-                    'No blue boxes detected but tracked positions exist, forcing cleanup'
-                )
-                # This will be handled in the next update cycle
             
         except Exception as e:
             self.get_logger().error(f'✗ Blue box RViz visualization error: {str(e)}')
