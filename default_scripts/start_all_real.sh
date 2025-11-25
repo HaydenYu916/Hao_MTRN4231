@@ -1,6 +1,6 @@
 #!/bin/bash
 # Complete system startup script for REAL hardware
-# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Dynamic Obstacles Monitor -> Leaf Detection
+# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Dynamic Obstacles Monitor -> Leaf Detection -> Arduino Communication
 
 echo "=========================================="
 echo "Starting UR5e + RealSense Complete System (REAL HARDWARE)"
@@ -132,6 +132,12 @@ gnome-terminal -t "LeafDetection" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source i
 
 sleep 2
 
+# 8. Start Arduino communication service
+echo "[9/9] Starting Arduino communication service..."
+gnome-terminal -t "ArduinoServer" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 run arduinoCommunication leafServerNode; exec bash'"
+
+sleep 2
+
 echo ""
 echo "=========================================="
 echo "All nodes started!"
@@ -143,6 +149,7 @@ echo "- RobotCameraTF: Robot + Camera TF"
 echo "- Camera: RealSense Camera Node"
 echo "- ObstacleMonitor: Dynamic Obstacles Monitor (subscribes to /obsFromImg)"
 echo "- LeafDetection: Leaf Detection Server + Visualization"
+echo "- ArduinoServer: Arduino Communication Service (vacuum/spray control)"
 echo "=========================================="
 echo ""
 echo "💡 Tip: Use ./default_scripts/run_automation.sh to start automation task"

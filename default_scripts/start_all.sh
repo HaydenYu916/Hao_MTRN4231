@@ -1,6 +1,6 @@
 #!/bin/bash
 # Complete system startup script
-# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Dynamic Obstacles Monitor -> Leaf Detection
+# Startup sequence: Build -> Source -> Robot Driver -> MoveIt -> Collision Objects -> Arm Monitoring -> Camera TF -> Camera Node -> Dynamic Obstacles Monitor -> Leaf Detection -> Arduino Communication
 
 echo "=========================================="
 echo "Starting UR5e + RealSense Complete System"
@@ -27,14 +27,14 @@ fix_library_path() {
 fix_library_path
 
 # 0. Clean and build workspace
-echo "[0/8] Cleaning old build files (if needed)..."
+echo "[0/9] Cleaning old build files (if needed)..."
 # Clean directories that may cause symbolic link conflicts (only when necessary)
 if [ -d "build/arm_msgs/ament_cmake_python/arm_msgs/arm_msgs" ] && [ ! -L "build/arm_msgs/ament_cmake_python/arm_msgs/arm_msgs" ]; then
     echo "  Cleaning arm_msgs symbolic link conflict (directory instead of link)..."
     rm -rf "build/arm_msgs/ament_cmake_python/arm_msgs/arm_msgs" 2>/dev/null || true
 fi
 
-echo "[0/8] Building workspace..."
+echo "[0/9] Building workspace..."
 colcon build --symlink-install
 BUILD_RESULT=$?
 
@@ -55,7 +55,7 @@ if [ $BUILD_RESULT -ne 0 ]; then
 fi
 
 # Source install
-echo "[0.5/8] Sourcing workspace..."
+echo "[0.5/9] Sourcing workspace..."
 if [ ! -f "install/setup.bash" ]; then
     echo "❌ Error: install/setup.bash file does not exist!"
     echo "Please ensure build succeeded before running this script."
@@ -115,6 +115,12 @@ gnome-terminal -t "LeafDetection" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source i
 
 sleep 2
 
+# 8. Start Arduino communication service
+echo "[9/9] Starting Arduino communication service..."
+gnome-terminal -t "ArduinoServer" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 run arduinoCommunication leafServerNode; exec bash'"
+
+sleep 2
+
 echo ""
 echo "=========================================="
 echo "All nodes started!"
@@ -126,6 +132,7 @@ echo "- RobotCameraTF: Robot + Camera TF"
 echo "- Camera: RealSense Camera Node"
 echo "- ObstacleMonitor: Dynamic Obstacles Monitor (subscribes to /obsFromImg)"
 echo "- LeafDetection: Leaf Detection Server + Visualization"
+echo "- ArduinoServer: Arduino Communication Service (vacuum/spray control)"
 echo "=========================================="
 echo ""
 echo "💡 Tip: Use ./default_scripts/run_automation.sh to start automation task"
