@@ -87,12 +87,12 @@ sleep 2
 
 # 1. Start REAL robot driver (use_fake_hardware:=false)
 echo "[1/9] Starting REAL robot driver..."
-gnome-terminal -t "DriverServer" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur5e robot_ip:=${ROBOT_IP} initial_joint_controller:=scaled_joint_trajectory_controller use_fake_hardware:=false launch_rviz:=false description_package:=robot_description description_file:=ur5e_with_camera.xacro; exec bash'"
+gnome-terminal -t "DriverServer" -- bash -c "cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur5e robot_ip:=${ROBOT_IP} initial_joint_controller:=scaled_joint_trajectory_controller use_fake_hardware:=false launch_rviz:=false; exec bash"
 
 sleep 5
 
 echo "[2/9] Starting MoveIt + RViz..."
-gnome-terminal -t "MoveitServer" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur5e launch_rviz:=true use_fake_hardware:=false description_package:=robot_description description_file:=ur5e_with_camera.xacro; exec bash'"
+gnome-terminal -t "MoveitServer" -- bash -c "cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur5e launch_rviz:=true use_fake_hardware:=false; exec bash"
 
 sleep 5
 

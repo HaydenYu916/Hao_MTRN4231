@@ -4,10 +4,11 @@ from launch_ros.actions import Node
 def generate_launch_description():
     # ⚠️ These are verified calibration parameters, ensure you understand them before modifying
     # Position (meters)
-    x, y, z = '1.29163', '0.1146956', '0.765489'
+    x, y, z = '1.29163', '0.0146956', '0.665489'
     
     # Quaternion (verified values, corresponding to RPY)
     # RPY: roll=0.0372615, pitch=-0.815369, yaw=-3.12141
+        # 1.29163 0.0146956 0.665489
     qx, qy, qz, qw = '-0.396568', '-0.0131018', '0.91791', '-0.00187618'
     
     return LaunchDescription([

@@ -19,11 +19,11 @@ struct JointConstraintConfig {
 };
 
 const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
-    { "shoulder_pan_joint",  M_PI,       M_PI / 2,   M_PI / 2 },   // 180° ± 90°
-    { "shoulder_lift_joint", -M_PI / 2,  M_PI / 2,   M_PI / 2 },   // -90° ± 90°
-    { "wrist_1_joint",       -M_PI / 2,  M_PI * 4/5, M_PI * 4/5 }, // -90° ± 144°
-    { "wrist_2_joint",       M_PI / 2,   M_PI / 3,   M_PI / 3 },   // 90° ± 60°
-    { "wrist_3_joint",       0,          M_PI / 3,   M_PI / 3 }    // 0° ± 60°
+    { "shoulder_pan_joint",  0,              M_PI,       M_PI },       // 0° ± 180°
+    { "shoulder_lift_joint", -M_PI / 4,      M_PI / 4,   M_PI / 4 },   // -45° ± 45° (-90° to 0°)
+    { "wrist_1_joint",       -M_PI * 105/180, M_PI,      M_PI },       // -105° ± 180°
+    { "wrist_2_joint",       -M_PI / 2,      M_PI / 2,   M_PI / 2 },   // -90° ± 90°
+    { "wrist_3_joint",       0,              M_PI / 2,   M_PI / 2 }    // 0° ± 90°
 };
 
 int main(int argc, char* argv[])
@@ -58,6 +58,15 @@ int main(int argc, char* argv[])
   auto current_pose = move_group.getCurrentPose().pose;
   std::cout << "Current position: (" << current_pose.position.x << ", " 
             << current_pose.position.y << ", " << current_pose.position.z << ")" << std::endl;
+
+  // Print current joint values
+  auto joint_names = move_group.getJointNames();
+  auto joint_values = move_group.getCurrentJointValues();
+  std::cout << "\nCurrent joint values:" << std::endl;
+  for (size_t i = 0; i < joint_names.size(); ++i) {
+    std::cout << "  " << joint_names[i] << ": " << joint_values[i] 
+              << " rad (" << (joint_values[i] * 180.0 / M_PI) << " deg)" << std::endl;
+  }
 
   // Target pose: keep current orientation
   geometry_msgs::msg::Pose target_pose = current_pose;

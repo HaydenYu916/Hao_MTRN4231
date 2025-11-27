@@ -66,14 +66,27 @@ class AutomationOrchestrator(Node):
         self.declare_parameter('bias_y', 0.0)     # Y-axis bias (meters)
         self.declare_parameter('bias_z', 0.5)     # Z-axis bias (meters)
         
+        # End effector height offset (tool0 to actual tip)
+        self.declare_parameter('end_effector_z', 0.104)  # End effector height (meters)
+        
         # Z-axis constraints (safety limits)
         self.declare_parameter('z_min', 0.05)    # Minimum Z coordinate (safety lower bound)
         self.declare_parameter('z_max', 1.80)     # Maximum Z coordinate (safety upper bound)
         
-        # Home position configuration
+        # Home position configuration (Cartesian)
         self.declare_parameter('home_x', 0.25)
         self.declare_parameter('home_y', 0.10)
         self.declare_parameter('home_z', 0.55)
+        
+        # Home joint angles (radians) - hardcoded default
+        self.home_joints = {
+            'shoulder_pan_joint': 0.0,
+            'shoulder_lift_joint': -1.3090,
+            'elbow_joint': 1.5708,
+            'wrist_1_joint': -1.8326,
+            'wrist_2_joint': -1.5708,
+            'wrist_3_joint': 0.0
+        }
         
         # Trash bin position configuration
         self.declare_parameter('trash_x', 0.10)
@@ -92,6 +105,7 @@ class AutomationOrchestrator(Node):
         self.bias_x = self.get_parameter('bias_x').value
         self.bias_y = self.get_parameter('bias_y').value
         self.bias_z = self.get_parameter('bias_z').value
+        self.end_effector_z = self.get_parameter('end_effector_z').value
         self.z_min = self.get_parameter('z_min').value
         self.z_max = self.get_parameter('z_max').value
         self.home_x = self.get_parameter('home_x').value
@@ -107,50 +121,11 @@ class AutomationOrchestrator(Node):
     
     def _initialize_home_from_current_pose(self):
         """
-        Initialize home position from current robot position
-        Use TF2 to get tool0 position relative to base_link
+        Initialize home position - using hardcoded joint angles
         """
-        self.declare_parameter('use_current_as_home', True)  # Default: use current position as home
-        use_current = self.get_parameter('use_current_as_home').value
-        
-        if not use_current:
-            self.get_logger().info("use_current_as_home=False, using parameter-specified home position")
-            return
-        
-        self.get_logger().info("Waiting for TF to be ready, reading current robot position as home...")
-        
-        # Wait for TF to be available (max 5 seconds)
-        max_wait = 5.0
-        start_time = time.time()
-        
-        while time.time() - start_time < max_wait:
-            try:
-                # Get tool0 transform relative to base_link
-                transform = self.tf_buffer.lookup_transform(
-                    'base_link',  # Target frame
-                    'tool0',      # Source frame (end effector)
-                    rclpy.time.Time(),  # Use latest transform
-                    timeout=rclpy.duration.Duration(seconds=1.0)
-                )
-                
-                # Update home position to current position
-                self.home_x = transform.transform.translation.x
-                self.home_y = transform.transform.translation.y
-                self.home_z = transform.transform.translation.z
-                
-                self.get_logger().info(
-                    f"✓ Home set from current robot position: "
-                    f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
-                )
-                return
-                
-            except Exception as e:
-                time.sleep(0.5)
-        
-        self.get_logger().warn(
-            f"Unable to read current robot position, using default home: "
-            f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
-        )
+        self.get_logger().info("Using hardcoded home joint angles:")
+        for joint, angle in self.home_joints.items():
+            self.get_logger().info(f"  {joint}: {angle:.4f} rad ({angle * 180 / 3.14159:.2f}°)")
     
     def _log_configuration(self):
         """Log configuration information"""
@@ -159,6 +134,7 @@ class AutomationOrchestrator(Node):
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Detection parameters: min_area={self.min_area}, confidence={self.confidence}")
         self.get_logger().info(f"Coordinate bias: bias_x={self.bias_x:.3f}m, bias_y={self.bias_y:.3f}m, bias_z={self.bias_z:.3f}m")
+        self.get_logger().info(f"End effector height: {self.end_effector_z:.3f}m")
         self.get_logger().info(f"Z-axis constraints: z_min={self.z_min}m, z_max={self.z_max}m")
         self.get_logger().info(f"Home position: ({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})")
         self.get_logger().info(f"Trash bin position: ({self.trash_x:.3f}, {self.trash_y:.3f}, {self.trash_z:.3f})")
@@ -310,15 +286,16 @@ class AutomationOrchestrator(Node):
         Returns:
             bool: Whether movement was successful
         """
-        # Apply coordinate bias (enabled by default)
+        # Apply coordinate bias and end effector offset (enabled by default)
         if apply_bias:
             target_x = x + self.bias_x
             target_y = y + self.bias_y
-            target_z = z + self.bias_z
+            # Add bias_z and end_effector_z to account for tool length
+            target_z = z + self.bias_z + self.end_effector_z
             self.get_logger().info(
                 f"Applying coordinate bias: original({x:.3f}, {y:.3f}, {z:.3f}) -> "
                 f"biased({target_x:.3f}, {target_y:.3f}, {target_z:.3f}) "
-                f"[bias=({self.bias_x:.3f}, {self.bias_y:.3f}, {self.bias_z:.3f})]"
+                f"[bias=({self.bias_x:.3f}, {self.bias_y:.3f}, {self.bias_z:.3f}), ee_z={self.end_effector_z:.3f}]"
             )
         else:
             target_x = x
@@ -405,18 +382,58 @@ class AutomationOrchestrator(Node):
     
     def move_arm_to_home(self):
         """
-        Move robot arm to home position
+
+        Move robot arm to home position using joint angles
         
         Returns:
             bool: Whether movement was successful
         """
-        self.get_logger().info(
-            f"Returning to home position: ({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
-        )
-        return self.move_arm_to_pose(
-            self.home_x, self.home_y, self.home_z, 
-            apply_bias=False  # Home position does not use bias
-        )
+        self.get_logger().info("Returning to home position using joint angles...")
+        
+        # Build joint state command string
+        joint_args = ' '.join([
+            f'{name}:={angle}' 
+            for name, angle in self.home_joints.items()
+        ])
+        
+        try:
+            # Use ros2 action to send joint trajectory
+            cmd = f'''ros2 action send_goal /scaled_joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{{
+  trajectory: {{
+    joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint],
+    points: [
+      {{ positions: [{self.home_joints['shoulder_pan_joint']}, {self.home_joints['shoulder_lift_joint']}, {self.home_joints['elbow_joint']}, {self.home_joints['wrist_1_joint']}, {self.home_joints['wrist_2_joint']}, {self.home_joints['wrist_3_joint']}], time_from_start: {{sec: 4, nanosec: 0}} }}
+    ]
+  }}
+}}"'''
+            
+            self.get_logger().info(f"Executing joint trajectory command...")
+            
+            import os
+            env = os.environ.copy()
+            
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=self.arm_movement_timeout,
+                env=env,
+            )
+            
+            if result.returncode == 0:
+                self.get_logger().info("✓ Robot arm returned to home position")
+                return True
+            else:
+                self.get_logger().error(f"❌ Return to home failed: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.get_logger().error(f"❌ Return to home timeout (>{self.arm_movement_timeout}s)")
+            return False
+        except Exception as e:
+            self.get_logger().error(f"❌ Return to home exception: {str(e)}")
+            return False
     
     def send_arduino_command(self, command):
         """

@@ -55,6 +55,7 @@ int main(int argc, char* argv[])
   auto col_object_table = generateCollisionObject(2.4, 1.2, 0.04, 0.85, 0.25, -0.03, frame_id, "table");
   auto col_object_backWall = generateCollisionObject(2.4, 0.04, 1.0, 0.85, -0.25, 0.5, frame_id, "backWall");
   auto col_object_sideWall = generateCollisionObject(0.04, 1.2, 1.0, -0.25, 0.25, 0.5, frame_id, "sideWall");
+  auto col_object_ceiling = generateCollisionObject(2.4, 1.2, 0.04, 0.8, 0.3, 0.9, frame_id, "ceiling");
   // Trash bin: 0.3m x 0.3m x 0.05m, height 0.05m (center at z=0.025m, top at z=0.05m)
   auto col_object_trashBin = generateCollisionObject(0.3, 0.3, 0.05, 0.10, 0.5, 0.025, frame_id, "trashBin");
 
@@ -64,6 +65,7 @@ int main(int argc, char* argv[])
   planning_scene_interface.applyCollisionObject(col_object_backWall);
   planning_scene_interface.applyCollisionObject(col_object_sideWall);
   planning_scene_interface.applyCollisionObject(col_object_trashBin);
+  planning_scene_interface.applyCollisionObject(col_object_ceiling);
   
   std::cout << "✓ Added the following collision objects:" << std::endl;
   std::cout << "  - table (2.4 x 1.2 x 0.04)" << std::endl;
