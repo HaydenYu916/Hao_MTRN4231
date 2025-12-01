@@ -40,19 +40,13 @@ def generate_launch_description():
     
     bias_z_arg = DeclareLaunchArgument(
         'bias_z',
-        default_value='0.15',
+        default_value='0.04',
         description='Z-axis coordinate bias (meters)'
-    )
-    
-    end_effector_z_arg = DeclareLaunchArgument(
-        'end_effector_z',
-        default_value='0.104',
-        description='End effector height offset (meters)'
     )
     
     z_min_arg = DeclareLaunchArgument(
         'z_min',
-        default_value='0.02',
+        default_value='0.01',
         description='Z coordinate minimum constraint (meters)'
     )
     
@@ -64,19 +58,19 @@ def generate_launch_description():
     
     home_x_arg = DeclareLaunchArgument(
         'home_x',
-        default_value='0.25',
+        default_value='0.6',
         description='Home position X coordinate (meters)'
     )
     
     home_y_arg = DeclareLaunchArgument(
         'home_y',
-        default_value='0.10',
+        default_value='0.15',
         description='Home position Y coordinate (meters)'
     )
     
     home_z_arg = DeclareLaunchArgument(
         'home_z',
-        default_value='0.55',
+        default_value='0.3',
         description='Home position Z coordinate (meters)'
     )
     
@@ -116,7 +110,6 @@ def generate_launch_description():
             'bias_x': ParameterValue(LaunchConfiguration('bias_x'), value_type=float),
             'bias_y': ParameterValue(LaunchConfiguration('bias_y'), value_type=float),
             'bias_z': ParameterValue(LaunchConfiguration('bias_z'), value_type=float),
-            'end_effector_z': ParameterValue(LaunchConfiguration('end_effector_z'), value_type=float),
             'z_min': ParameterValue(LaunchConfiguration('z_min'), value_type=float),
             'z_max': ParameterValue(LaunchConfiguration('z_max'), value_type=float),
             'home_x': ParameterValue(LaunchConfiguration('home_x'), value_type=float),
@@ -140,7 +133,6 @@ def generate_launch_description():
         bias_x_arg,
         bias_y_arg,
         bias_z_arg,
-        end_effector_z_arg,
         z_min_arg,
         z_max_arg,
         home_x_arg,

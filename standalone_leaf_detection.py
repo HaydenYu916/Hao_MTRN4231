@@ -13,6 +13,19 @@ from datetime import datetime
 import argparse
 import sys
 
+# HSV color space parameter definitions (macros)
+# Leaf detection HSV parameters (green)
+LEAF_HSV_LOWER = [40, 60, 40]      # Green leaf HSV lower bound [H, S, V]
+LEAF_HSV_UPPER = [80, 255, 255]    # Green leaf HSV upper bound [H, S, V]
+
+# Yellow tape detection HSV parameters
+YELLOW_TAPE_HSV_LOWER = [20, 100, 100]  # Yellow tape HSV lower bound [H, S, V]
+YELLOW_TAPE_HSV_UPPER = [30, 255, 255]  # Yellow tape HSV upper bound [H, S, V]
+
+# Blue box detection HSV parameters
+BLUE_BOX_HSV_LOWER = [102, 149, 50]     # Blue box HSV lower bound [H, S, V]
+BLUE_BOX_HSV_UPPER = [130, 255, 255]    # Blue box HSV upper bound [H, S, V]
+
 
 class StandaloneLeafDetector:
     """Standalone leaf detector, no ROS2 dependency"""
@@ -38,18 +51,18 @@ class StandaloneLeafDetector:
         self.detect_yellow = detect_yellow
         self.yellow_ratio_threshold = yellow_ratio_threshold
         
-        # HSV color range parameters (configurable, stricter defaults for detecting real yellow tape)
+        # HSV color range parameters (using macros, can be overridden via arguments)
         # Yellow tape is usually bright yellow with high saturation and brightness
-        self.yellow_hsv_lower = yellow_hsv_lower if yellow_hsv_lower is not None else [20, 100, 100]
-        self.yellow_hsv_upper = yellow_hsv_upper if yellow_hsv_upper is not None else [30, 255, 255]
+        self.yellow_hsv_lower = yellow_hsv_lower if yellow_hsv_lower is not None else YELLOW_TAPE_HSV_LOWER
+        self.yellow_hsv_upper = yellow_hsv_upper if yellow_hsv_upper is not None else YELLOW_TAPE_HSV_UPPER
         
         # Blue box detection parameters
         self.detect_blue_box = detect_blue_box
         self.blue_min_area = blue_min_area
         # Blue in HSV: H value 100-130 (blue range), high S and V values
-        # Using adjusted parameters: S Lower=147 to reduce false positives
-        self.blue_hsv_lower = blue_hsv_lower if blue_hsv_lower is not None else [100, 147, 50]
-        self.blue_hsv_upper = blue_hsv_upper if blue_hsv_upper is not None else [130, 255, 255]
+        # Using adjusted parameters: H Lower=102, S Lower=149 to reduce false positives
+        self.blue_hsv_lower = blue_hsv_lower if blue_hsv_lower is not None else BLUE_BOX_HSV_LOWER
+        self.blue_hsv_upper = blue_hsv_upper if blue_hsv_upper is not None else BLUE_BOX_HSV_UPPER
         
         # PlantCV settings
         pcv.params.debug = None  # Disable debug output
@@ -290,35 +303,36 @@ class StandaloneLeafDetector:
             debug_images['hsv'] = hsv.copy()
             
             # Step 1: Detect green leaves
-            lower_green = np.array([40, 60, 40])
-            upper_green = np.array([80, 255, 255])
+            # Use macro-defined leaf HSV parameters
+            lower_green = np.array(LEAF_HSV_LOWER)
+            upper_green = np.array(LEAF_HSV_UPPER)
             thresh_green = cv2.inRange(hsv, lower_green, upper_green)
             
-            # Step 2: Detect yellow tape region（Full image detection for later analysis within leaf regions）
+            # Step 2: Detect yellow tape region (full image detection for later analysis within leaf regions)
             thresh_yellow_full = np.zeros_like(thresh_green)
             if self.detect_yellow:
-                # Use configurable HSV range，Default range is wider to handle different lighting conditions
+                # Use configurable HSV range, default range is wider to handle different lighting conditions
                 lower_yellow = np.array(self.yellow_hsv_lower, dtype=np.uint8)
                 upper_yellow = np.array(self.yellow_hsv_upper, dtype=np.uint8)
                 thresh_yellow_hsv = cv2.inRange(hsv, lower_yellow, upper_yellow)
                 
-                # Use stricter morphological operations，Remove small noise points
-                # First open operation to remove small noise，Then close operation to connect nearby regions
+                # Use stricter morphological operations, remove small noise points
+                # First open operation to remove small noise, then close operation to connect nearby regions
                 kernel_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
                 thresh_yellow_hsv = cv2.morphologyEx(thresh_yellow_hsv, cv2.MORPH_OPEN, kernel_small, iterations=1)
                 thresh_yellow_hsv = cv2.morphologyEx(thresh_yellow_hsv, cv2.MORPH_CLOSE, kernel_small, iterations=1)
                 
-                # Use LAB color space as supplement，But use stricter range
+                # Use LAB color space as supplement, but use stricter range
                 # Only detect real bright yellow tape, avoid detecting yellow parts of leaves themselves
                 lab = cv2.cvtColor(crop_img, cv2.COLOR_BGR2LAB)
-                # Yellow tape is usually bright yellow：L is high (brightness), a is low (greenish), b is high (yellowish)
-                # Use stricter range，Avoid false detection of yellow at leaf edges
+                # Yellow tape is usually bright yellow: L is high (brightness), a is low (greenish), b is high (yellowish)
+                # Use stricter range to avoid false detection of yellow at leaf edges
                 lab_yellow_mask = np.zeros_like(thresh_yellow_hsv, dtype=np.uint8)
                 # Stricter conditions：L>110 (bright), a<140 (greenish), b>150 (yellowish)
                 lab_yellow_mask[(lab[:,:,0] > 110) & (lab[:,:,1] < 140) & (lab[:,:,2] > 150)] = 255
                 
-                # Merge HSV and LAB detection results（Prioritize OR operation for more sensitive detection）
-                # Prioritize OR operation for more sensitive detection (easier to detect yellow tape)
+                # Merge HSV and LAB detection results (prioritize OR operation for more sensitive detection)
+                # Prioritizing OR operation makes it easier to detect yellow tape
                 thresh_yellow_full = cv2.bitwise_or(thresh_yellow_hsv, lab_yellow_mask)
                 
                 # Morphological processing to remove small noise
@@ -330,17 +344,17 @@ class StandaloneLeafDetector:
             thresh = thresh_green.copy()
             thresh_binary = (thresh / 255).astype(np.uint8)
             
-            # Step 2.5: Detect blue boxes（Independent of leaf detection）
+            # Step 2.5: Detect blue boxes (independent of leaf detection)
             thresh_blue_full = np.zeros_like(thresh_green)
             blue_box_coordinates = []
             if self.detect_blue_box:
                 # Use HSV color space to detect blue
-                # Blue in HSV：H value between 100-130 (blue range), high S and V values
+                # Blue in HSV: H value between 100-130 (blue range), high S and V values
                 lower_blue_hsv = np.array(self.blue_hsv_lower, dtype=np.uint8)
                 upper_blue_hsv = np.array(self.blue_hsv_upper, dtype=np.uint8)
                 thresh_blue_hsv = cv2.inRange(hsv, lower_blue_hsv, upper_blue_hsv)
                 
-                # Morphological processing：Remove small noise，Connect nearby regions
+                # Morphological processing: remove small noise, connect nearby regions
                 # Use smaller kernel to avoid destroying blue box shape
                 kernel_blue_small = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
                 kernel_blue_medium = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
@@ -351,22 +365,22 @@ class StandaloneLeafDetector:
                 
                 thresh_blue_full = thresh_blue_morph
                 
-                # Detect blue box contours（Including all levels to detect multiple faces）
-                # Use RETR_TREE to get all contours including internal contours (may be different faces of box)
+                # Detect blue box contours (including all levels to detect multiple faces)
+                # Use RETR_TREE to get all contours including internal contours (may be different faces of the box)
                 blue_contours, blue_hierarchy = cv2.findContours(thresh_blue_full, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
                 
-                # Debug info：Show number of detected contours
+                # Debug info: show number of detected contours
                 if frame_count <= 5:
                     print(f'  🔍 Blue detection: found {len(blue_contours)} Contours (HSV range: {self.blue_hsv_lower}-{self.blue_hsv_upper}, min area>{self.blue_min_area})')
                 
-                # Collect all valid blue regions（May be different faces of box）
+                # Collect all valid blue regions (may be different faces of the box)
                 valid_blue_regions = []
                 
-                # Filter blue box contours（Detect all visible faces）
+                # Filter blue box contours (detect all visible faces)
                 for idx, blue_cnt in enumerate(blue_contours):
                     area = cv2.contourArea(blue_cnt)
                     
-                    # Lower minimum area for single face，Because we want to detect multiple faces
+                    # Lower minimum area for a single face because we want to detect multiple faces
                     min_face_area = max(500, self.blue_min_area * 0.3)  # Single face is at least 30% of total area or 500 pixels
                     if area < min_face_area:
                         continue
@@ -376,7 +390,7 @@ class StandaloneLeafDetector:
                     if w_rect == 0 or h_rect == 0:
                         continue
                     
-                    # Calculate rectangularity（Ratio of contour area to bounding box area）
+                    # Calculate rectangularity (ratio of contour area to bounding box area)
                     bbox_area = w_rect * h_rect
                     if bbox_area == 0:
                         continue
@@ -401,7 +415,7 @@ class StandaloneLeafDetector:
                         cx = x + w_rect // 2 + 20
                         cy = y + h_rect // 2 + 20
                     
-                    # Get depth value and 3D coordinates（Sample multiple points for more accurate depth）
+                    # Get depth value and 3D coordinates (sample multiple points for more accurate depth)
                     depth_value_mm = 0
                     point_3d = None
                     depth_samples = []
@@ -409,11 +423,11 @@ class StandaloneLeafDetector:
                     if depth_image is not None:
                         try:
                             # Sample multiple points within contour region
-                            # Note：Contour coordinates are relative to cropped image, need to convert to original image coordinates
+                            # Note: contour coordinates are relative to cropped image, need to convert to original image coordinates
                             mask = np.zeros((crop_img.shape[0], crop_img.shape[1]), dtype=np.uint8)
                             cv2.drawContours(mask, [blue_cnt], -1, 255, -1)
                             
-                            # Convert to original image coordinates（Depth image is original size）
+                            # Convert to original image coordinates (depth image is original size)
                             depth_x = x + 20
                             depth_y = y + 20
                             depth_x_end = min(depth_image.shape[1], depth_x + w_rect)
@@ -425,7 +439,7 @@ class StandaloneLeafDetector:
                             mask_roi = mask[y:y+h_rect, x:x+w_rect]
                             depth_roi = depth_image[depth_y_start:depth_y_end, depth_x_start:depth_x_end]
                             
-                            # Resize mask ROITo match depth ROI
+                            # Resize mask ROI to match depth ROI
                             if mask_roi.shape != depth_roi.shape:
                                 mask_roi_resized = cv2.resize(mask_roi, (depth_roi.shape[1], depth_roi.shape[0]))
                             else:
@@ -443,7 +457,7 @@ class StandaloneLeafDetector:
                                 print(f'  Blue region depth retrieval error: {e}')
                             pass
                     
-                    # Save blue region info（May be one face of the box）
+                    # Save blue region info (may be one face of the box)
                     region_info = {
                         'contour': blue_cnt,
                         'area': float(area),
@@ -456,7 +470,7 @@ class StandaloneLeafDetector:
                     }
                     valid_blue_regions.append(region_info)
                 
-                # Group regions by depth and positionAs the same box
+                # Group regions by depth and position as the same box
                 # If multiple regions have similar depth and position, they may belong to the same box
                 blue_box_groups = []
                 depth_tolerance = 50  # Depth tolerance (mm)
@@ -486,7 +500,7 @@ class StandaloneLeafDetector:
                         pos_diff = np.sqrt((region['center_2d'][0] - avg_center[0])**2 + 
                                           (region['center_2d'][1] - avg_center[1])**2)
                         
-                        # If both depth and position are close，Join this group
+                        # If both depth and position are close, join this group
                         if depth_diff < depth_tolerance and pos_diff < position_tolerance:
                             group.append(region)
                             matched = True
@@ -502,7 +516,7 @@ class StandaloneLeafDetector:
                     if len(group) == 0:
                         continue
                     
-                    # Calculate merged bounding box（Containing all faces）
+                    # Calculate merged bounding box (containing all faces)
                     all_x_min = min([r['bbox'][0] for r in group])
                     all_y_min = min([r['bbox'][1] for r in group])
                     all_x_max = max([r['bbox'][0] + r['bbox'][2] for r in group])
@@ -528,7 +542,7 @@ class StandaloneLeafDetector:
                         except:
                             pass
                     
-                    # Calculate box 3D dimensions（Using high precision dense sampling method）
+                    # Calculate box 3D dimensions (using high precision dense sampling method)
                     box_3d_size = None
                     measured_dimensions = None
                     if depth_image is not None and merged_point_3d:
@@ -540,15 +554,15 @@ class StandaloneLeafDetector:
                             all_y_max   # y_max
                         )
                         
-                        # Create blue region mask（Optional, for more precise sampling）
+                        # Create blue region mask (optional, for more precise sampling)
                         blue_mask = None
                         try:
                             # Create mask: within merged bounding box, only sample blue regions
                             blue_mask = np.zeros_like(depth_image, dtype=np.uint8)
                             for region in group:
                                 x_reg, y_reg, w_reg, h_reg = region['bbox']
-                                # Draw each face region（Simple rectangular mask）
-                                # Note：Using simple rectangle here, use contours if more precision needed
+                                # Draw each face region (simple rectangular mask)
+                                # Note: using simple rectangle here, use contours if more precision needed
                                 cv2.rectangle(blue_mask, 
                                             (x_reg, y_reg), 
                                             (x_reg + w_reg, y_reg + h_reg), 
@@ -570,11 +584,11 @@ class StandaloneLeafDetector:
                                 'height': measured_dimensions['height'],
                                 'depth': measured_dimensions['depth']
                             }
-                            # If measurement results available, use more precise center point
+                            # If measurement results are available, use more precise center point
                             if 'center_3d' in measured_dimensions:
                                 merged_point_3d = measured_dimensions['center_3d']
                         else:
-                            # If high precision method fails，Fallback to simple estimation
+                            # If high precision method fails, fall back to simple estimation
                             depth_m = avg_depth_mm * 0.001
                             pixel_size = depth_m / self.intrinsics.fx if self.intrinsics else 0.001
                             box_3d_size = {
@@ -630,11 +644,11 @@ class StandaloneLeafDetector:
                 elif frame_count <= 5:
                     print(f'  ⚠️ No blue boxes detected (check HSV range and min area settings)')
             
-            # Create debug image：Show green、yellow and blue detection results
+            # Create debug image: show green, yellow and blue detection results
             debug_thresh = np.zeros((crop_img.shape[0], crop_img.shape[1], 3), dtype=np.uint8)
-            debug_thresh[:, :, 1] = thresh_green  # Green channelShow green detection
-            debug_thresh[:, :, 0] = thresh_yellow_full  # Blue channelShow yellow detection
-            debug_thresh[:, :, 2] = thresh_blue_full  # Red channelShow blue detection
+            debug_thresh[:, :, 1] = thresh_green        # Green channel shows green detection
+            debug_thresh[:, :, 0] = thresh_yellow_full  # Blue channel shows yellow detection
+            debug_thresh[:, :, 2] = thresh_blue_full    # Red channel shows blue detection
             debug_images['threshold'] = debug_thresh
             
             # Morphological processing
@@ -654,9 +668,9 @@ class StandaloneLeafDetector:
             if len(contours) == 0:
                 # Even without contours, also save empty valid contours image
                 debug_images['contours_valid'] = crop_img.copy()
-                # Even without leaves，May still have blue boxes
+                # Even without leaves, there may still be blue boxes
                 if len(blue_box_coordinates) > 0:
-                    result = f"Detected {len(blue_box_coordinates)} blue boxes（No leaves）"
+                    result = f"Detected {len(blue_box_coordinates)} blue boxes (no leaves)"
                     moveit_objects = self.get_moveit_collision_objects(blue_box_coordinates, frame_id="world")
                     leaf_data = {
                         'num_leaves': 0,
@@ -721,9 +735,9 @@ class StandaloneLeafDetector:
             debug_images['contours_valid'] = valid_contour_img.copy()
             
             if len(valid_contours) == 0:
-                # Even without valid leaves，May still have blue boxes
+                # Even without valid leaves, there may still be blue boxes
                 if len(blue_box_coordinates) > 0:
-                    result = f"Detected {len(blue_box_coordinates)} blue boxes（No valid leaves）"
+                    result = f"Detected {len(blue_box_coordinates)} blue boxes (no valid leaves)"
                     moveit_objects = self.get_moveit_collision_objects(blue_box_coordinates, frame_id="world")
                     leaf_data = {
                         'num_leaves': 0,
@@ -762,7 +776,7 @@ class StandaloneLeafDetector:
                 area = cv2.contourArea(cnt)
                 perimeter = cv2.arcLength(cnt, True)
                 
-                # Get depth value and 3D coordinates（Use larger region for stability）
+                # Get depth value and 3D coordinates (use larger region for stability)
                 depth_value_mm = 0
                 point_3d = None
                 has_valid_depth = False
@@ -770,7 +784,7 @@ class StandaloneLeafDetector:
                 if depth_image is not None:
                     try:
                         if cx < depth_image.shape[1] and cy < depth_image.shape[0]:
-                            # Use 5x5 regionAverage value for stability
+                            # Use 5x5 region and average value for stability
                             y_start = max(0, cy - 2)
                             y_end = min(depth_image.shape[0], cy + 3)
                             x_start = max(0, cx - 2)
@@ -788,7 +802,7 @@ class StandaloneLeafDetector:
                                     has_valid_depth = True
                                     point_3d = self.pixel_to_3d(cx, cy, depth_value_mm)
                             else:
-                                # If no valid depth, trying to use depth within contour region
+                                # If no valid depth, try to use depth within contour region
                                 # Sample multiple points within contour bounding box
                                 bbox_x_start = max(0, x + 20 - 10)
                                 bbox_x_end = min(depth_image.shape[1], x + 20 + w_rect + 10)
@@ -804,20 +818,20 @@ class StandaloneLeafDetector:
                                         has_valid_depth = True
                                         point_3d = self.pixel_to_3d(cx, cy, depth_value_mm)
                     except Exception as e:
-                        # Debug info：Only print on first frame
+                        # Debug info: only print on first frame
                         if frame_count <= 3 and leaf_idx == 1:
                             print(f'  Depth retrieval error: {e}')
                         pass
                 
                 # If depth filtering fails, still keep contour (for debugging, at least can see detection box)
-                # But mark as no depth info
+                # But mark as having no depth info
                 if not has_valid_depth:
-                    # Debug info：Show why it was filtered
+                    # Debug info: show why it was filtered
                     if frame_count <= 5:  # Print debug info for first 5 frames
-                        print(f'  Contour {leaf_idx} depth invalid: cx={cx}, cy={cy}, depth={depth_value_mm}mm, trying to use contour region')
+                        print(f'  Contour {leaf_idx} depth invalid: cx={cx}, cy={cy}, depth={depth_value_mm} mm, trying to use contour region')
                     
-                    # Even if depth invalid, keep contour (but mark depth as 0)
-                    # So at least can see detection box
+                    # Even if depth is invalid, keep contour (but mark depth as 0)
+                    # So at least we can see the detection box
                     depth_value_mm = 0
                     point_3d = None
                     # Do not continue, keep processing this contour
@@ -827,21 +841,21 @@ class StandaloneLeafDetector:
                 yellow_ratio = 0.0
                 
                 if self.detect_yellow and thresh_yellow_full is not None:
-                    # Create leaf region mask（Using full contour，Not bounding box）
-                    # This allows more accurate detection of yellow areas inside leaf
+                    # Create leaf region mask (using full contour, not bounding box)
+                    # This allows more accurate detection of yellow areas inside the leaf
                     leaf_mask = np.zeros_like(thresh_green, dtype=np.uint8)
                     cv2.drawContours(leaf_mask, [cnt], -1, 255, -1)
                     
-                    # Calculate directly on full mask，Not bounding box region
-                    # This avoids bounding box potentially including non-leaf areas
+                    # Calculate directly on the full mask, not only the bounding box region
+                    # This avoids the bounding box potentially including non-leaf areas
                     leaf_pixels = np.sum(leaf_mask > 0)
                     yellow_pixels = np.sum((leaf_mask > 0) & (thresh_yellow_full > 0))
                     
                     if leaf_pixels > 0:
                         yellow_ratio = yellow_pixels / leaf_pixels
                         
-                        # Additional validation：Check connectivity and size of yellow region
-                        # Real yellow tape should be continuous、With certain size
+                        # Additional validation: check connectivity and size of yellow region
+                        # Real yellow tape should be continuous with a certain size
                         yellow_in_leaf = (leaf_mask > 0) & (thresh_yellow_full > 0)
                         yellow_contours, _ = cv2.findContours(
                             yellow_in_leaf.astype(np.uint8), 
@@ -854,15 +868,15 @@ class StandaloneLeafDetector:
                         if len(yellow_contours) > 0:
                             max_yellow_area = max(cv2.contourArea(c) for c in yellow_contours)
                         
-                        # Lower minimum area requirement：At least 50 pixels or 0.5% of leaf area (easier detection)
+                        # Lower minimum area requirement: at least 50 pixels or 0.5% of leaf area (easier detection)
                         min_yellow_area_threshold = max(50, leaf_pixels * 0.005)
                         
-                        # Use OR condition：Satisfy either ratio threshold or minimum area requirement（Easier detection）
+                        # Use OR condition: satisfy either ratio threshold or minimum area requirement (easier detection)
                         if (yellow_ratio >= self.yellow_ratio_threshold or 
                             max_yellow_area >= min_yellow_area_threshold):
                             has_yellow_tape = True
                             
-                            # Debug log：Record detected yellow tape info
+                            # Debug log: record detected yellow tape info
                             if frame_count <= 5 or frame_count % 30 == 0:
                                 print(f'  🎯 Leaf {leaf_idx}: Detected yellow tape - '
                                       f'yellow_ratio={yellow_ratio:.4f} '
@@ -870,22 +884,26 @@ class StandaloneLeafDetector:
                                       f'YellowPixels={yellow_pixels}/{leaf_pixels}, '
                                       f'Largest connected region={max_yellow_area:.0f}Pixels')
                         else:
-                            # Debug log：Record validation failure
+                            # Debug log: record validation failure
                             if yellow_ratio > 0.01 and (frame_count <= 5 or frame_count % 30 == 0):
                                 reason = []
                                 if yellow_ratio < self.yellow_ratio_threshold:
-                                    reason.append(f'Ratio insufficient({yellow_ratio:.4f}<{self.yellow_ratio_threshold:.4f})')
+                                    reason.append(f'Ratio insufficient ({yellow_ratio:.4f} < {self.yellow_ratio_threshold:.4f})')
                                 if max_yellow_area < min_yellow_area_threshold:
-                                    reason.append(f'Area too small({max_yellow_area:.0f}<{min_yellow_area_threshold:.0f})')
-                                print(f'  ⚠️ Leaf {leaf_idx}: Detected yellow but validation failed - '
-                                      f'yellow_ratio={yellow_ratio:.4f}, '
-                                      f'Largest connected region={max_yellow_area:.0f}Pixels, '
-                                      f'Reason: {", ".join(reason)}')
+                                    reason.append(f'Area too small ({max_yellow_area:.0f} < {min_yellow_area_threshold:.0f})')
+                                print(
+                                    f'  ⚠️ Leaf {leaf_idx}: Detected yellow but validation failed - '
+                                    f'yellow_ratio={yellow_ratio:.4f} '
+                                    f'(largest connected region={max_yellow_area:.0f} pixels, '
+                                    f'reason: {", ".join(reason)})'
+                                )
                     else:
-                        # Debug: If leaf region is empty, record warning
+                        # Debug: if leaf region is empty, record warning
                         if frame_count <= 5:
-                            print(f'  ⚠️ Leaf {leaf_idx}: Leaf region mask is empty，Cannot detect yellow tape '
-                                  f'(bbox: x={x}, y={y}, w={w_rect}, h={h_rect})')
+                            print(
+                                f'  ⚠️ Leaf {leaf_idx}: Leaf region mask is empty, cannot detect yellow tape '
+                                f'(bbox: x={x}, y={y}, w={w_rect}, h={h_rect})'
+                            )
                 
                 # Save leaf info
                 leaf_info = {
@@ -930,15 +948,17 @@ class StandaloneLeafDetector:
             # Summarize yellow tape detection results
             yellow_tape_count = sum(1 for leaf in leaf_coordinates if leaf.get('has_yellow_tape', False))
             if yellow_tape_count > 0:
-                print(f'  📊 Detection summary: Total{num_detected_leaves}Leaves, '
-                      f'Of which {yellow_tape_count}leaves detected with yellow tape')
+                print(
+                    f'  📊 Detection summary: total {num_detected_leaves} leaves, '
+                    f'of which {yellow_tape_count} detected with yellow tape'
+                )
                 # List all leaves with yellow tape
                 for leaf in leaf_coordinates:
                     if leaf.get('has_yellow_tape', False):
                         print(f'    ✓ Leaf {leaf["id"]}: yellow_ratio={leaf.get("yellow_ratio", 0):.4f}')
             
             if num_detected_leaves == 0:
-                # Even if depth filtering fails，Also show contours（For debugging）
+                # Even if depth filtering fails, also show contours (for debugging)
                 # Create result image showing all valid contours
                 result_img = crop_img.copy()
                 cv2.drawContours(result_img, valid_contours, -1, (0, 255, 255), 2)  # Yellow contours
@@ -950,7 +970,7 @@ class StandaloneLeafDetector:
                 cv2.putText(result_img, f'Valid contours: {len(valid_contours)}', 
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 
-                # Add number to each contour
+                # Add index number to each contour
                 for idx, cnt in enumerate(valid_contours):
                     M = cv2.moments(cnt)
                     if M['m00'] > 0:
@@ -960,9 +980,9 @@ class StandaloneLeafDetector:
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
                 
                 debug_images['result'] = result_img
-                # Even without valid leaves，May still have blue boxes
+                # Even without valid leaves, there may still be blue boxes
                 if len(blue_box_coordinates) > 0:
-                    result = f"Detected {len(blue_box_coordinates)} blue boxes（Leaves after depth filtering）"
+                    result = f"Detected {len(blue_box_coordinates)} blue boxes (leaves removed after depth filtering)"
                     moveit_objects = self.get_moveit_collision_objects(blue_box_coordinates, frame_id="world")
                     leaf_data = {
                         'num_leaves': 0,
@@ -973,7 +993,7 @@ class StandaloneLeafDetector:
                         'moveit_collision_objects': moveit_objects
                     }
                     return result, leaf_data, [], debug_images
-                return "No valid leaves detected（After depth filtering）", None, None, debug_images
+                return "No valid leaves detected (after depth filtering)", None, None, debug_images
             
             result = f"Detected {num_detected_leaves} Leaves"
             if len(blue_box_coordinates) > 0:
@@ -1510,7 +1530,7 @@ def main():
         type=int,
         nargs=3,
         metavar=('H', 'S', 'V'),
-        default=[20, 100, 100],
+        default=YELLOW_TAPE_HSV_LOWER,
         help='HSV color range lower bound (default: 20 100 100, stricter for detecting bright yellow tape)'
     )
     parser.add_argument(
@@ -1518,7 +1538,7 @@ def main():
         type=int,
         nargs=3,
         metavar=('H', 'S', 'V'),
-        default=[30, 255, 255],
+        default=YELLOW_TAPE_HSV_UPPER,
         help='HSV color range upper bound (default: 30 255 255)'
     )
     parser.add_argument(
@@ -1537,15 +1557,15 @@ def main():
         type=int,
         nargs=3,
         metavar=('H', 'S', 'V'),
-        default=[100, 147, 50],
-        help='Blue HSV color range lower bound (default: 100 147 50, higher S value to reduce false positives)'
+        default=BLUE_BOX_HSV_LOWER,
+        help='Blue HSV color range lower bound (default: 102 149 50, adjusted to reduce false positives)'
     )
     parser.add_argument(
         '--blue-hsv-upper',
         type=int,
         nargs=3,
         metavar=('H', 'S', 'V'),
-        default=[130, 255, 255],
+        default=BLUE_BOX_HSV_UPPER,
         help='Blue HSV color range upper bound (default: 130 255 255)'
     )
     

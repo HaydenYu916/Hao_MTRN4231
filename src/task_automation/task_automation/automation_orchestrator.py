@@ -64,19 +64,17 @@ class AutomationOrchestrator(Node):
         # Coordinate bias parameters (applied to all coordinates by default)
         self.declare_parameter('bias_x', 0.0)     # X-axis bias (meters)
         self.declare_parameter('bias_y', 0.0)     # Y-axis bias (meters)
-        self.declare_parameter('bias_z', 0.5)     # Z-axis bias (meters)
-        
-        # End effector height offset (tool0 to actual tip)
-        self.declare_parameter('end_effector_z', 0.104)  # End effector height (meters)
+        self.declare_parameter('bias_z', 0.15)     # Z-axis bias (meters)
         
         # Z-axis constraints (safety limits)
         self.declare_parameter('z_min', 0.05)    # Minimum Z coordinate (safety lower bound)
         self.declare_parameter('z_max', 1.80)     # Maximum Z coordinate (safety upper bound)
         
-        # Home position configuration (Cartesian)
-        self.declare_parameter('home_x', 0.25)
-        self.declare_parameter('home_y', 0.10)
-        self.declare_parameter('home_z', 0.55)
+        # Home position configuration (Cartesian, base_link -> tool_point)
+        # Default home: x=0.5, y=0.15, z=0.4
+        self.declare_parameter('home_x', 0.5)
+        self.declare_parameter('home_y', 0.15)
+        self.declare_parameter('home_z', 0.4)
         
         # Home joint angles (radians) - hardcoded default
         self.home_joints = {
@@ -91,7 +89,7 @@ class AutomationOrchestrator(Node):
         # Trash bin position configuration
         self.declare_parameter('trash_x', 0.10)
         self.declare_parameter('trash_y', 0.50)
-        self.declare_parameter('trash_z', 0.20)  # Trash bin discard position
+        self.declare_parameter('trash_z', 0.25)  # Trash bin discard position (increased from 0.20 to 0.25 for safety)
         
         # Task flow parameters
         self.declare_parameter('wait_between_leaves', 2.0)  # Wait time between processing leaves (seconds)
@@ -105,7 +103,6 @@ class AutomationOrchestrator(Node):
         self.bias_x = self.get_parameter('bias_x').value
         self.bias_y = self.get_parameter('bias_y').value
         self.bias_z = self.get_parameter('bias_z').value
-        self.end_effector_z = self.get_parameter('end_effector_z').value
         self.z_min = self.get_parameter('z_min').value
         self.z_max = self.get_parameter('z_max').value
         self.home_x = self.get_parameter('home_x').value
@@ -134,7 +131,6 @@ class AutomationOrchestrator(Node):
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Detection parameters: min_area={self.min_area}, confidence={self.confidence}")
         self.get_logger().info(f"Coordinate bias: bias_x={self.bias_x:.3f}m, bias_y={self.bias_y:.3f}m, bias_z={self.bias_z:.3f}m")
-        self.get_logger().info(f"End effector height: {self.end_effector_z:.3f}m")
         self.get_logger().info(f"Z-axis constraints: z_min={self.z_min}m, z_max={self.z_max}m")
         self.get_logger().info(f"Home position: ({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})")
         self.get_logger().info(f"Trash bin position: ({self.trash_x:.3f}, {self.trash_y:.3f}, {self.trash_z:.3f})")
@@ -286,16 +282,16 @@ class AutomationOrchestrator(Node):
         Returns:
             bool: Whether movement was successful
         """
-        # Apply coordinate bias and end effector offset (enabled by default)
+        # Apply coordinate bias (enabled by default)
         if apply_bias:
             target_x = x + self.bias_x
             target_y = y + self.bias_y
-            # Add bias_z and end_effector_z to account for tool length
-            target_z = z + self.bias_z + self.end_effector_z
+            # Add bias_z to account for tool positioning
+            target_z = z + self.bias_z
             self.get_logger().info(
                 f"Applying coordinate bias: original({x:.3f}, {y:.3f}, {z:.3f}) -> "
                 f"biased({target_x:.3f}, {target_y:.3f}, {target_z:.3f}) "
-                f"[bias=({self.bias_x:.3f}, {self.bias_y:.3f}, {self.bias_z:.3f}), ee_z={self.end_effector_z:.3f}]"
+                f"[bias=({self.bias_x:.3f}, {self.bias_y:.3f}, {self.bias_z:.3f})]"
             )
         else:
             target_x = x
@@ -382,22 +378,33 @@ class AutomationOrchestrator(Node):
     
     def move_arm_to_home(self):
         """
-
-        Move robot arm to home position using joint angles
+        Move robot arm to home position.
+        Current implementation:
+          1) Try to use MoveIt Cartesian planning to reach home pose (with collision checking)
+          2) If MoveIt fails, fall back to the original joint trajectory command (no collision checking)
         
         Returns:
             bool: Whether movement was successful
         """
-        self.get_logger().info("Returning to home position using joint angles...")
-        
-        # Build joint state command string
-        joint_args = ' '.join([
-            f'{name}:={angle}' 
-            for name, angle in self.home_joints.items()
-        ])
-        
+        self.get_logger().info(
+            f"Returning to home using MoveIt (cartesian): "
+            f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
+        )
+
+        # 1) Preferred: use move_arm_to_pose (MoveIt planning with collision checking), no bias for home pose
+        moveit_success = self.move_arm_to_pose(
+            self.home_x, self.home_y, self.home_z, apply_bias=False
+        )
+
+        if moveit_success:
+            self.get_logger().info("✓ Robot arm returned to home position via MoveIt")
+            return True
+
+        self.get_logger().warn(
+            "⚠ MoveIt return-to-home failed, falling back to joint trajectory (no collision checking)"
+        )
+
         try:
-            # Use ros2 action to send joint trajectory
             cmd = f'''ros2 action send_goal /scaled_joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{{
   trajectory: {{
     joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint],
@@ -406,12 +413,12 @@ class AutomationOrchestrator(Node):
     ]
   }}
 }}"'''
-            
-            self.get_logger().info(f"Executing joint trajectory command...")
-            
+
+            self.get_logger().info("Executing fallback joint trajectory command...")
+
             import os
             env = os.environ.copy()
-            
+
             result = subprocess.run(
                 cmd,
                 shell=True,
@@ -420,19 +427,19 @@ class AutomationOrchestrator(Node):
                 timeout=self.arm_movement_timeout,
                 env=env,
             )
-            
+
             if result.returncode == 0:
-                self.get_logger().info("✓ Robot arm returned to home position")
+                self.get_logger().info("✓ Robot arm returned to home position (fallback joints)")
                 return True
-            else:
-                self.get_logger().error(f"❌ Return to home failed: {result.stderr}")
-                return False
-                
+
+            self.get_logger().error(f"❌ Fallback return to home failed: {result.stderr}")
+            return False
+
         except subprocess.TimeoutExpired:
-            self.get_logger().error(f"❌ Return to home timeout (>{self.arm_movement_timeout}s)")
+            self.get_logger().error(f"❌ Fallback return to home timeout (>{self.arm_movement_timeout}s)")
             return False
         except Exception as e:
-            self.get_logger().error(f"❌ Return to home exception: {str(e)}")
+            self.get_logger().error(f"❌ Fallback return to home exception: {str(e)}")
             return False
     
     def send_arduino_command(self, command):

@@ -25,7 +25,7 @@
           <color rgba="0.6 0.6 0.6 1.0"/>
         </material>
       </visual>
-      <!-- Collision volume removed - only tool_point has collision volume -->
+      <!-- Collision volume commented out -->
       <!-- <collision>
         <geometry>
           <box size="${collision_box_x} ${collision_box_y} ${collision_box_z}"/>
@@ -56,11 +56,11 @@
     </joint>
 
     <!-- Tool point - the actual end effector tip for MoveIt planning -->
-    <!-- Located at the highest point of the end effector (tool0 + collision_box_z) -->
+    <!-- This should be at the gripper's actual tip, accounting for gripper offset and rotation -->
     <link name="${prefix}tool_point">
       <visual>
         <geometry>
-          <!-- Small sphere to mark tool_point position -->
+          <!-- Small sphere to mark tool_point position (highest point) -->
           <sphere radius="0.005"/>
         </geometry>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -68,27 +68,29 @@
           <color rgba="1.0 0.0 0.0 1.0"/>
         </material>
       </visual>
-      <!-- Semi-transparent visual box showing collision volume -->
+      <!-- Semi-transparent visual box showing collision volume (from tool_point down to tool0) -->
       <visual>
         <geometry>
           <box size="${collision_box_x} ${collision_box_y} ${collision_box_z}"/>
         </geometry>
-        <!-- Position at midpoint between tool_point and tool0 -->
-        <origin xyz="0 0 ${-collision_box_z / 2+0.025}" rpy="0 0 0"/>
+        <!-- Position at midpoint between tool_point (top) and tool0 (bottom) -->
+        <!-- This centers the visual box halfway between tool_point and tool0 -->
+        <origin xyz="0 0 ${-collision_box_z / 2}" rpy="0 0 0"/>
         <material name="tool_point_collision_semi_transparent">
+          <!-- Semi-transparent red (alpha=0.3 = 30% opacity, 70% transparent) -->
+          <!-- Similar to backup file's 0.5 transparency but slightly more transparent -->
           <color rgba="1.0 0.0 0.0 0.3"/>
         </material>
       </visual>
-      <!-- Collision volume: avoid collision with tool0 and wrist_3_link -->
-      <!-- Only cover the end effector (from tool_point down, avoiding tool0 area) -->
-      <!-- Reduced height by 0.05m and shifted down to avoid tool0 collision -->
+      <!-- Collision volume: from tool_point (top at z=0) down to tool0 (bottom at z=-collision_box_z) -->
+      <!-- Center positioned at midpoint between tool_point and tool0 for proper collision detection -->
       <collision>
         <geometry>
           <box size="${collision_box_x} ${collision_box_y} ${collision_box_z}"/>
         </geometry>
-        <!-- Shifted down: collision volume extends from tool_point down, but avoids tool0 -->
-        <!-- Original: -collision_box_z/2, adjusted to avoid tool0: -collision_box_z/2 + 0.025 -->
-        <origin xyz="0 0 ${-(collision_box_z) / 2+0.025 }" rpy="0 0 0"/>
+        <!-- Center at midpoint: tool_point is at origin (0), tool0 is at (-collision_box_z) -->
+        <!-- Center at -collision_box_z/2 makes box extend from tool_point (top) to tool0 (bottom) -->
+        <origin xyz="0 0 ${-collision_box_z / 2}" rpy="0 0 0"/>
       </collision>
       <inertial>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -99,11 +101,13 @@
       </inertial>
     </link>
     <!-- Tool point - directly attached to tool0, at gripper's top point (highest point) -->
-    <!-- Position at tool0 + collision_box_z = highest point of end effector -->
+    <!-- End effector height is ${collision_box_z} (0.14138m) -->
+    <!-- This allows target z to represent the highest point of the end effector -->
+    <!-- When target z=0, the top of end effector will be at floor level -->
     <joint name="${prefix}tool_point_joint" type="fixed">
       <parent link="${parent}"/>
       <child link="${prefix}tool_point"/>
-      <!-- Position at highest point = tool0 + end effector height -->
+      <!-- Position at gripper's top point (highest point) = tool0 + end effector height -->
       <origin xyz="0 0 ${collision_box_z}" rpy="0 0 0"/>
     </joint>
 
