@@ -29,10 +29,6 @@ fix_library_path
 # Parse command line arguments first (before checking system)
 MIN_AREA="0.0"
 CONFIDENCE="0.0"
-HOME_X="0.25"
-HOME_Y="0.10"
-HOME_Z="0.55"
-
 SKIP_CHECK=false
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -42,18 +38,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --confidence)
             CONFIDENCE="$2"
-            shift 2
-            ;;
-        --home-x)
-            HOME_X="$2"
-            shift 2
-            ;;
-        --home-y)
-            HOME_Y="$2"
-            shift 2
-            ;;
-        --home-z)
-            HOME_Z="$2"
             shift 2
             ;;
         --skip-check)
@@ -66,9 +50,6 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --min-area VALUE     Minimum leaf area threshold for detection (default: 0.0)"
             echo "  --confidence VALUE  Leaf detection confidence threshold (default: 0.0)"
-            echo "  --home-x VALUE      Home position X coordinate in meters (default: 0.25)"
-            echo "  --home-y VALUE      Home position Y coordinate in meters (default: 0.10)"
-            echo "  --home-z VALUE      Home position Z coordinate in meters (default: 0.55)"
             echo "  --skip-check        Skip system status check and start task directly"
             echo "  --help              Show this help message"
             echo ""
@@ -76,7 +57,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0                              # Use default parameters"
             echo "  $0 --min-area 2000   # Custom parameters"
             echo "  $0 --skip-check      # Skip check and start directly"
-            echo "  $0 --home-x 0.3 --home-y 0.2 --home-z 0.6   # Custom home position"
+            echo "  # To customize home position, pass home_x/home_y/home_z to automation_task.launch.py directly"
             exit 0
             ;;
         *)
@@ -191,21 +172,18 @@ echo "=========================================="
 echo "Parameters:"
 echo "  - Minimum area: $MIN_AREA"
 echo "  - Confidence: $CONFIDENCE"
-echo "  - Home position: x=$HOME_X, y=$HOME_Y, z=$HOME_Z m"
+echo "  - Home position: use parameters from automation_task.launch.py (home_x/home_y/home_z)"
 echo "=========================================="
 echo ""
 
 # Run in new terminal or current terminal
 if command -v gnome-terminal &> /dev/null; then
     echo "Starting automation task in new terminal..."
-    gnome-terminal --title "AutomationTask" -- bash -c "cd \"$WORKSPACE_DIR\" && fix_library_path() { if [ -n \"\$CONDA_PREFIX\" ]; then SYSTEM_LIB_PATH=\"/usr/lib/x86_64-linux-gnu\"; if [ -n \"\$LD_LIBRARY_PATH\" ]; then export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib:\${LD_LIBRARY_PATH}\"; else export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib\"; fi; fi; }; fix_library_path && source install/setup.bash && ros2 launch task_automation automation_task.launch.py min_area:=$MIN_AREA confidence:=$CONFIDENCE home_x:=$HOME_X home_y:=$HOME_Y home_z:=$HOME_Z; exec bash"
+    gnome-terminal --title "AutomationTask" -- bash -c "cd \"$WORKSPACE_DIR\" && fix_library_path() { if [ -n \"\$CONDA_PREFIX\" ]; then SYSTEM_LIB_PATH=\"/usr/lib/x86_64-linux-gnu\"; if [ -n \"\$LD_LIBRARY_PATH\" ]; then export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib:\${LD_LIBRARY_PATH}\"; else export LD_LIBRARY_PATH=\"\${SYSTEM_LIB_PATH}:\${CONDA_PREFIX}/lib\"; fi; fi; }; fix_library_path && source install/setup.bash && ros2 launch task_automation automation_task.launch.py min_area:=$MIN_AREA confidence:=$CONFIDENCE; exec bash"
     echo "Automation task started in new terminal"
 else
     echo "Starting automation task in current terminal..."
     ros2 launch task_automation automation_task.launch.py \
         min_area:=$MIN_AREA \
-        confidence:=$CONFIDENCE \
-        home_x:=$HOME_X \
-        home_y:=$HOME_Y \
-        home_z:=$HOME_Z
+        confidence:=$CONFIDENCE
 fi
