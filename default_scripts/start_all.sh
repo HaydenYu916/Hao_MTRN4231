@@ -96,7 +96,7 @@ sleep 3
 echo "[5/9] Starting RealSense camera node..."
 gnome-terminal -t "Camera" -e "bash -c 'cd \"$SCRIPT_DIR\" && ./camera.sh; exec bash'"
 
-sleep 2
+sleep 3  # Give camera time to initialize
 
 # 6. Start dynamic obstacles monitor (needs MoveIt to be running)
 echo "[6/9] Starting dynamic obstacles monitor..."
@@ -104,7 +104,75 @@ gnome-terminal -t "ObstacleMonitor" -e "bash -c 'cd \"$WORKSPACE_DIR\" && fix_li
 
 sleep 2
 
-# 7. Start leaf detection server
+# 7. Start leaf detection server (wait for dependencies to be ready to avoid coordinate errors)
+echo "[7/9] Waiting for dependencies to be ready..."
+echo "  Checking TF availability (camera_color_optical_frame -> base_link)..."
+MAX_WAIT=30  # Maximum wait time in seconds
+TF_READY=false
+CAMERA_READY=false
+
+for i in $(seq 1 $MAX_WAIT); do
+    # Check TF transform - try to get transform, any output means TF is working
+    if [ "$TF_READY" = false ]; then
+        TF_OUTPUT=$(timeout 3 ros2 run tf2_ros tf2_echo camera_color_optical_frame base_link --once 2>&1)
+        if echo "$TF_OUTPUT" | grep -qE "(At time|Translation|transform)" 2>/dev/null; then
+            TF_READY=true
+            echo "  ✓ TF transforms ready after ${i} seconds"
+        fi
+    fi
+    
+    # Check camera topics - check if topics exist and have publishers
+    if [ "$CAMERA_READY" = false ]; then
+        # Check if topics exist
+        if ros2 topic list 2>/dev/null | grep -qE "/camera/camera/color/(image_raw|camera_info)" 2>/dev/null; then
+            # Check if camera_info has a publisher (means camera is actually publishing)
+            CAMERA_INFO=$(timeout 2 ros2 topic info /camera/camera/color/camera_info 2>/dev/null)
+            if echo "$CAMERA_INFO" | grep -qE "Publisher count: [1-9]" 2>/dev/null; then
+                CAMERA_READY=true
+                echo "  ✓ Camera topics ready after ${i} seconds"
+            fi
+        fi
+    fi
+    
+    # If both are ready, break
+    if [ "$TF_READY" = true ] && [ "$CAMERA_READY" = true ]; then
+        echo "  ✓ All dependencies ready!"
+        break
+    fi
+    
+    if [ $((i % 5)) -eq 0 ]; then
+        echo "  ⏳ Still waiting... TF: $([ "$TF_READY" = true ] && echo "✓" || echo "✗"), Camera: $([ "$CAMERA_READY" = true ] && echo "✓" || echo "✗") (${i}/${MAX_WAIT}s)"
+    fi
+    sleep 1
+done
+
+if [ "$TF_READY" = false ] || [ "$CAMERA_READY" = false ]; then
+    echo "  ⚠️  Warning: Some dependencies may not be fully ready"
+    if [ "$TF_READY" = false ]; then
+        echo "     - TF transforms not ready"
+        echo "       Trying to diagnose:"
+        echo "         Checking if TF frames exist..."
+        ros2 run tf2_ros tf2_echo camera_color_optical_frame base_link --once 2>&1 | head -5 || echo "         ✗ Cannot get TF transform"
+    fi
+    if [ "$CAMERA_READY" = false ]; then
+        echo "     - Camera topics not ready"
+        echo "       Trying to diagnose:"
+        echo "         Checking camera topics..."
+        if ros2 topic list 2>/dev/null | grep -q "/camera"; then
+            echo "         ✓ Camera topics exist, checking publishers..."
+            ros2 topic info /camera/camera/color/camera_info 2>/dev/null | grep "Publisher" || echo "         ✗ No publishers found"
+        else
+            echo "         ✗ Camera topics not found"
+        fi
+    fi
+    echo "  💡 If you see coordinate errors, restart this script (./default_scripts/start_all.sh)"
+    echo "  💡 Continuing anyway - dependencies may become available shortly..."
+    sleep 3  # Give a bit more time even if check failed
+else
+    echo "  ✓ All dependencies confirmed ready"
+    sleep 2
+fi
+
 echo "[7/9] Starting leaf detection server..."
 gnome-terminal -t "LeafDetection" -e "bash -c 'cd \"$WORKSPACE_DIR\" && source install/setup.bash && ros2 launch detect_leaf_pkg leaf_detection_server.launch.py; exec bash'"
 
