@@ -43,6 +43,9 @@ class DetectionHandler:
         
         # Track published blue box IDs for cleanup
         self.published_blue_box_ids = set()  # Track which box IDs have been published to MoveIt
+        self.last_published_blue_box_positions = {}  # Track last published positions for change detection
+        self.blue_box_position_threshold = node.declare_parameter('blue_box_position_threshold', 0.01).value  # 1cm position change threshold
+        self.blue_box_refresh_interval = node.declare_parameter('blue_box_refresh_interval', 10).value  # Force refresh every N frames
         
         # Detection mode: continuous or on-demand
         self.continuous_detection = node.declare_parameter('continuous_detection', True).value
@@ -54,6 +57,11 @@ class DetectionHandler:
         self.yellow_hsv_lower = node.declare_parameter('yellow_hsv_lower', [20, 100, 100]).value
         self.yellow_hsv_upper = node.declare_parameter('yellow_hsv_upper', [30, 255, 255]).value
         
+        # Green leaf detection HSV parameters (configurable)
+        # Green leaves: H value 40-85 (green range), medium to high S and V values
+        self.green_hsv_lower = node.declare_parameter('green_hsv_lower', [40, 60, 40]).value
+        self.green_hsv_upper = node.declare_parameter('green_hsv_upper', [85, 255, 255]).value
+        
         # Blue box detection parameters
         self.detect_blue_box = node.declare_parameter('detect_blue_box', True).value
         self.blue_min_area = node.declare_parameter('blue_min_area', 3000.0).value
@@ -61,6 +69,11 @@ class DetectionHandler:
         # Using adjusted parameters: S Lower=147 to reduce false positives
         self.blue_hsv_lower = node.declare_parameter('blue_hsv_lower', [100, 147, 50]).value
         self.blue_hsv_upper = node.declare_parameter('blue_hsv_upper', [130, 255, 255]).value
+        
+        # Blue box MoveIt collision object parameters
+        self.publish_blue_box_to_moveit = node.declare_parameter('publish_blue_box_to_moveit', True).value
+        self.blue_box_safety_margin = node.declare_parameter('blue_box_safety_margin', 0.005).value  # 0.5cm safety margin in meters (reduced to allow paths closer to obstacles)
+        self.blue_box_max_size = node.declare_parameter('blue_box_max_size', 1.0).value  # Maximum box size in meters (to filter invalid detections)
         
         # Publisher for detection results (for visualization node to subscribe)
         self.detection_results_pub = node.create_publisher(
@@ -105,6 +118,9 @@ class DetectionHandler:
         self.get_logger().info('✓ DetectionHandler initialized')
         if self.continuous_detection:
             self.get_logger().info('📡 Continuous detection mode: images will be published continuously')
+        self.get_logger().info(
+            f'🍃 Green leaf detection HSV range: {self.green_hsv_lower} - {self.green_hsv_upper}'
+        )
         if self.detect_yellow_tape:
             self.get_logger().info(
                 f'🎯 Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.3f}, '
@@ -115,6 +131,15 @@ class DetectionHandler:
                 f'📦 Blue box detection enabled (min_area={self.blue_min_area}, '
                 f'HSV range: {self.blue_hsv_lower} - {self.blue_hsv_upper})'
             )
+            if self.publish_blue_box_to_moveit:
+                self.get_logger().info(
+                    f'   → MoveIt collision publishing enabled (safety_margin={self.blue_box_safety_margin*100:.1f}cm, '
+                    f'max_size={self.blue_box_max_size*100:.1f}cm, '
+                    f'position_threshold={self.blue_box_position_threshold*100:.1f}cm, '
+                    f'refresh_interval={self.blue_box_refresh_interval} frames)'
+                )
+            else:
+                self.get_logger().info('   → MoveIt collision publishing disabled')
     
     def get_logger(self):
         """Get node logger"""
@@ -393,11 +418,29 @@ class DetectionHandler:
     
     def _publish_blue_boxes_to_moveit(self, blue_boxes):
         """Publish blue boxes as MoveIt CollisionObjects to /obsFromImg"""
+        # Check if publishing to MoveIt is enabled
+        if not self.publish_blue_box_to_moveit:
+            # If disabled, remove any previously published boxes
+            if len(self.published_blue_box_ids) > 0:
+                for box_id in list(self.published_blue_box_ids):
+                    self._remove_blue_box_from_moveit(box_id)
+                    self.published_blue_box_ids.discard(box_id)
+            return
+        
         from moveit_msgs.msg import CollisionObject
         from std_msgs.msg import Header
         
         # Get current box IDs
         current_box_ids = set()
+        
+        # Check if we need to force refresh (every N frames)
+        force_refresh = False
+        if not hasattr(self, '_blue_box_refresh_counter'):
+            self._blue_box_refresh_counter = 0
+        self._blue_box_refresh_counter += 1
+        if self._blue_box_refresh_counter >= self.blue_box_refresh_interval:
+            force_refresh = True
+            self._blue_box_refresh_counter = 0
         
         for box in blue_boxes:
             point_3d = box.get('point_3d')
@@ -407,7 +450,6 @@ class DetectionHandler:
                 continue
             
             box_id = f"blue_box_{box['id']:03d}"
-            current_box_ids.add(box_id)
             
             # Convert camera frame coordinates to base frame if tf_handler is available
             base_point_3d = point_3d
@@ -416,12 +458,55 @@ class DetectionHandler:
                 if base_coords:
                     base_point_3d = base_coords
                 else:
-                    self.get_logger().warn(f'Failed to convert blue box {box.get("id")} to base frame, removing old marker')
-                    # If conversion fails, remove the old marker if it exists
-                    if box_id in self.published_blue_box_ids:
-                        self._remove_blue_box_from_moveit(box_id)
-                        self.published_blue_box_ids.discard(box_id)
+                    self.get_logger().warn(f'Failed to convert blue box {box.get("id")} to base frame, skipping MoveIt publishing')
                     continue
+            
+            # Validate and apply safety margins to dimensions
+            width = float(size_3d.get('width', 0.1))
+            height = float(size_3d.get('height', 0.1))
+            depth = float(size_3d.get('depth', 0.1))
+            
+            # Check if dimensions are reasonable (not too large, likely measurement error)
+            max_dimension = max(width, height, depth)
+            if max_dimension > self.blue_box_max_size:
+                self.get_logger().warn(
+                    f'Blue box {box.get("id")} dimensions too large ({max_dimension*100:.1f}cm > {self.blue_box_max_size*100:.1f}cm), '
+                    f'skipping MoveIt publishing. Size: W={width*100:.1f}cm, H={height*100:.1f}cm, D={depth*100:.1f}cm'
+                )
+                continue
+            
+            # Apply safety margin (add padding to dimensions for collision avoidance)
+            width_with_margin = max(width + 2 * self.blue_box_safety_margin, 0.01)
+            height_with_margin = max(height + 2 * self.blue_box_safety_margin, 0.01)
+            depth_with_margin = max(depth + 2 * self.blue_box_safety_margin, 0.01)
+            
+            current_box_ids.add(box_id)
+            
+            # Check if position changed significantly or force refresh
+            position_changed = False
+            last_position = self.last_published_blue_box_positions.get(box_id)
+            
+            if last_position is None:
+                # First time publishing this box
+                position_changed = True
+            else:
+                # Check if position changed beyond threshold
+                pos_diff = np.sqrt(
+                    (base_point_3d[0] - last_position[0])**2 +
+                    (base_point_3d[1] - last_position[1])**2 +
+                    (base_point_3d[2] - last_position[2])**2
+                )
+                position_changed = pos_diff > self.blue_box_position_threshold
+            
+            # Only publish if position changed or force refresh
+            should_publish = position_changed or force_refresh or box_id not in self.published_blue_box_ids
+            
+            if not should_publish:
+                continue  # Skip publishing if position hasn't changed and no force refresh
+            
+            # Always use ADD operation - MoveIt will automatically update existing objects with the same ID
+            operation = CollisionObject.ADD
+            is_update = box_id in self.published_blue_box_ids
             
             # Create CollisionObject message
             collision_obj = CollisionObject()
@@ -430,16 +515,16 @@ class DetectionHandler:
             collision_obj.header.stamp = self.node.get_clock().now().to_msg()
             
             collision_obj.id = box_id
-            collision_obj.operation = CollisionObject.ADD  # 0 = ADD
+            collision_obj.operation = operation
             
-            # Set primitive (box)
+            # Set primitive (box) with safety margins
             from shape_msgs.msg import SolidPrimitive
             primitive = SolidPrimitive()
             primitive.type = SolidPrimitive.BOX  # 1 = BOX
             primitive.dimensions = [
-                float(size_3d['width']),
-                float(size_3d['height']),
-                float(size_3d['depth'])
+                width_with_margin,
+                height_with_margin,
+                depth_with_margin
             ]
             collision_obj.primitives = [primitive]
             
@@ -455,10 +540,20 @@ class DetectionHandler:
             # Publish
             self.moveit_collision_pub.publish(collision_obj)
             self.published_blue_box_ids.add(box_id)
+            
+            # Update last published position
+            self.last_published_blue_box_positions[box_id] = (
+                base_point_3d[0],
+                base_point_3d[1],
+                base_point_3d[2]
+            )
+            
+            op_str = "UPDATE" if is_update else "ADD"
+            refresh_str = " (forced refresh)" if force_refresh else ""
             self.get_logger().debug(
-                f'Published blue box {collision_obj.id} to /obsFromImg: '
+                f'Published blue box {collision_obj.id} to /obsFromImg [{op_str}]{refresh_str}: '
                 f'pos=({base_point_3d[0]:.3f}, {base_point_3d[1]:.3f}, {base_point_3d[2]:.3f}), '
-                f'size=({size_3d["width"]:.3f}, {size_3d["height"]:.3f}, {size_3d["depth"]:.3f})'
+                f'size=({width_with_margin*100:.1f}cm, {height_with_margin*100:.1f}cm, {depth_with_margin*100:.1f}cm)'
             )
         
         # Remove boxes that are no longer detected
@@ -466,6 +561,9 @@ class DetectionHandler:
         for box_id in boxes_to_remove:
             self._remove_blue_box_from_moveit(box_id)
             self.published_blue_box_ids.discard(box_id)
+            # Clean up position record
+            if box_id in self.last_published_blue_box_positions:
+                del self.last_published_blue_box_positions[box_id]
     
     def _remove_blue_box_from_moveit(self, box_id):
         """Remove a blue box from MoveIt planning scene"""
@@ -751,8 +849,9 @@ class DetectionHandler:
             
             # HSV color space - detect green and optional yellow tape
             hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
-            lower_green = np.array([40, 60, 40])
-            upper_green = np.array([80, 255, 255])
+            # Use configurable HSV range for green leaf detection
+            lower_green = np.array(self.green_hsv_lower, dtype=np.uint8)
+            upper_green = np.array(self.green_hsv_upper, dtype=np.uint8)
             thresh_green = cv2.inRange(hsv, lower_green, upper_green)
             thresh_green = (thresh_green / 255).astype(np.uint8)
             

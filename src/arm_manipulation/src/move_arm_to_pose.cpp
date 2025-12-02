@@ -5,198 +5,99 @@
 #include <string>
 #include <thread>
 #include <cmath>
-#include <map>
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/planning_scene/planning_scene.h>
+#include <moveit/collision_detection/collision_common.h>
 #include <moveit_msgs/msg/joint_constraint.hpp>
 #include <moveit_msgs/msg/constraints.hpp>
-#include <moveit/planning_scene/planning_scene.h>
-#include <moveit/robot_state/robot_state.h>
-#include <moveit/robot_state/conversions.h>
-#include <moveit/collision_detection/collision_common.h>
-#include <tf2_eigen/tf2_eigen.hpp>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_ros/buffer.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <tf2/transform_datatypes.h>
-#include <tf2/exceptions.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
-#include <chrono>
-#include <thread>
-#include <sstream>
-
-// Helper function to get error code name
-std::string getErrorCodeName(const moveit::core::MoveItErrorCode& error_code) {
-  if (error_code == moveit::core::MoveItErrorCode::SUCCESS) return "SUCCESS";
-  if (error_code == moveit::core::MoveItErrorCode::FAILURE) return "FAILURE";
-  if (error_code == moveit::core::MoveItErrorCode::PLANNING_FAILED) return "PLANNING_FAILED";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_MOTION_PLAN) return "INVALID_MOTION_PLAN";
-  if (error_code == moveit::core::MoveItErrorCode::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE) return "MOTION_PLAN_INVALIDATED";
-  if (error_code == moveit::core::MoveItErrorCode::CONTROL_FAILED) return "CONTROL_FAILED";
-  if (error_code == moveit::core::MoveItErrorCode::UNABLE_TO_AQUIRE_SENSOR_DATA) return "UNABLE_TO_AQUIRE_SENSOR_DATA";
-  if (error_code == moveit::core::MoveItErrorCode::TIMED_OUT) return "TIMED_OUT";
-  if (error_code == moveit::core::MoveItErrorCode::PREEMPTED) return "PREEMPTED";
-  if (error_code == moveit::core::MoveItErrorCode::START_STATE_IN_COLLISION) return "START_STATE_IN_COLLISION";
-  if (error_code == moveit::core::MoveItErrorCode::START_STATE_VIOLATES_PATH_CONSTRAINTS) return "START_STATE_VIOLATES_PATH_CONSTRAINTS";
-  if (error_code == moveit::core::MoveItErrorCode::GOAL_IN_COLLISION) return "GOAL_IN_COLLISION";
-  if (error_code == moveit::core::MoveItErrorCode::GOAL_VIOLATES_PATH_CONSTRAINTS) return "GOAL_VIOLATES_PATH_CONSTRAINTS";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_GROUP_NAME) return "INVALID_GROUP_NAME";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_GOAL_CONSTRAINTS) return "INVALID_GOAL_CONSTRAINTS";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_ROBOT_STATE) return "INVALID_ROBOT_STATE";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_LINK_NAME) return "INVALID_LINK_NAME";
-  if (error_code == moveit::core::MoveItErrorCode::INVALID_OBJECT_NAME) return "INVALID_OBJECT_NAME";
-  if (error_code == moveit::core::MoveItErrorCode::FRAME_TRANSFORM_FAILURE) return "FRAME_TRANSFORM_FAILURE";
-  if (error_code == moveit::core::MoveItErrorCode::COLLISION_CHECKING_UNAVAILABLE) return "COLLISION_CHECKING_UNAVAILABLE";
-  if (error_code == moveit::core::MoveItErrorCode::ROBOT_STATE_STALE) return "ROBOT_STATE_STALE";
-  if (error_code == moveit::core::MoveItErrorCode::SENSOR_INFO_STALE) return "SENSOR_INFO_STALE";
-  if (error_code == moveit::core::MoveItErrorCode::NO_IK_SOLUTION) return "NO_IK_SOLUTION";
-  std::stringstream ss;
-  ss << "UNKNOWN_ERROR(" << error_code.val << ")";
-  return ss.str();
-}
-
-// Joint constraint configuration (reference: ScrewDrivingBot)
-struct JointConstraintConfig {
-    std::string joint_name;
-    double position;
-    double tolerance_above;
-    double tolerance_below;
-};
-
-// Toggle: enable/disable joint/path constraints (set to false to disable)
-// Keep constraints disabled for now to verify that OMPL planning works in an unconstrained setting
-constexpr bool USE_JOINT_CONSTRAINTS = false;
-
+ 
+ // Joint constraint configuration (reference: ScrewDrivingBot)
+ struct JointConstraintConfig {
+     std::string joint_name;
+     double position;
+     double tolerance_above;
+     double tolerance_below;
+ };
+ 
 const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
-  { "shoulder_pan_joint",   0,               M_PI,        M_PI },        // 0° ± 180°
-  { "shoulder_lift_joint", -M_PI / 4,        M_PI / 2,     M_PI / 2 },   // -45° ± 90° (slightly relaxed compared to the original)
-  { "wrist_1_joint",       -M_PI * 105/180,  M_PI,        M_PI },        // -105° ± 180°
-  { "wrist_2_joint",       -M_PI / 2,        M_PI,        M_PI },        // -90° ± 180°
-  { "wrist_3_joint",        0,               M_PI,        M_PI }         // 0° ± 180°
+   { "shoulder_pan_joint",  0,              M_PI,         M_PI },           // 0° ± 180° = -180° to 180°
+                // { "shoulder_lift_joint", -M_PI / 4,      M_PI / 4,   M_PI / 4 },   // -45° ± 45° (-90° to 0°)
+   { "shoulder_lift_joint", -M_PI / 2,      M_PI / 2,     M_PI / 2 },      // -90° ± 90° -> [-180°, 0°]
+   { "wrist_1_joint",       -M_PI * 105/180, M_PI,        M_PI },          // -105° ± 180°
+   { "wrist_2_joint",       -M_PI / 2,      M_PI / 2,     M_PI / 2 },      // -90° ± 90°
+   { "wrist_3_joint",       0,              M_PI/2,         M_PI/2 }           // 0° ± 90° (relaxed constraints to allow larger rotation range)
 };
-
-int main(int argc, char* argv[])
-{
-  rclcpp::init(argc, argv);
-  auto node = std::make_shared<rclcpp::Node>("move_arm_to_pose", 
-                                                     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
-
-  double target_x = 0.3, target_y = 0.3, target_z = 0.4;
+ 
+ int main(int argc, char* argv[])
+ {
+   rclcpp::init(argc, argv);
+   auto node = std::make_shared<rclcpp::Node>("move_arm_to_pose", 
+                                                      rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));
+ 
+   double target_x , target_y , target_z ;
+  bool use_constraints = true;
+  double max_velocity_scaling = 0.15;  // Default velocity scaling factor (15% of max velocity)
+  double max_acceleration_scaling = 0.15;  // Default acceleration scaling factor (15% of max acceleration)
+  double planning_time = 60.0;  // Default planning time (60 seconds)
+  int num_planning_attempts = 200;  // Default number of planning attempts (200)
+  
+  // Since automatically_declare_parameters_from_overrides(true) is set,
+  // parameters passed from launch file will be automatically declared
+  // Get parameters directly, use default values if not present
   node->get_parameter("target_x", target_x);
   node->get_parameter("target_y", target_y);
   node->get_parameter("target_z", target_z);
-
-  std::cout << "\n=== Moving to (" << target_x << ", " << target_y << ", " << target_z << ") ===" << std::endl;
-
-  using moveit::planning_interface::MoveGroupInterface;
-  auto move_group = MoveGroupInterface(node, "ur_manipulator");
-  
-  rclcpp::executors::SingleThreadedExecutor executor;
-  executor.add_node(node);
-  auto spinner = std::thread([&executor]() { executor.spin(); });
-  
-  // Set end effector link to tool_point (0.104m from tool0)
-  // Note: link name is "tool_point" (prefix is empty in URDF)
-  move_group.setEndEffectorLink("tool_point");
-  std::cout << "End effector link set to: " << move_group.getEndEffectorLink() << std::endl;
-  
-  // Use OMPL planner (UR official moveit_config is configured only with OMPL by default)
-  // If pilz_industrial_motion_planner is correctly loaded into move_group in the future, switch to LIN
-  move_group.setPlannerId("RRTConnectkConfigDefault");
-  move_group.setPlanningTime(20.0);  // Planning time
-  move_group.setNumPlanningAttempts(15);  // Number of planning attempts (reference uses 15)
-  move_group.setGoalTolerance(0.0005);  // Goal tolerance: 0.1mm precision (reference uses 0.00005)
-  move_group.setMaxVelocityScalingFactor(0.1);  // Velocity scaling
-  move_group.setMaxAccelerationScalingFactor(0.1);  // Acceleration scaling
-  move_group.setStartStateToCurrentState();  // Start from current state (reference pattern)
-  
-  std::cout << "✓ Using OMPL planner via UR MoveIt config" << std::endl;
-  std::cout << "  Planner ID: " << move_group.getPlannerId() << std::endl;
-  std::cout << "  Planning time: 20.0 seconds" << std::endl;
-  std::cout << "  Planning attempts: 15" << std::endl;
-  std::cout << "  Goal tolerance: 0.0005 m (0.1mm)" << std::endl;
-
-  // Get current pose
-  auto current_pose_stamped = move_group.getCurrentPose();
-  auto current_pose = current_pose_stamped.pose;
-  std::cout << "Planning frame: " << move_group.getPlanningFrame() << std::endl;
-  std::cout << "End effector link: " << move_group.getEndEffectorLink() << std::endl;
-  std::cout << "Current pose frame: " << current_pose_stamped.header.frame_id << std::endl;
-  std::cout << "Current position (" << move_group.getEndEffectorLink() << "): (" 
-            << current_pose.position.x << ", " 
-            << current_pose.position.y << ", " << current_pose.position.z << ")" << std::endl;
-  
-  // Get tool0 position for comparison
-  try {
-    tf2_ros::Buffer tf_buffer(node->get_clock());
-    tf2_ros::TransformListener tf_listener(tf_buffer);
-    
-    // Wait for TF to be available
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    
-    geometry_msgs::msg::TransformStamped tool0_transform;
-    tool0_transform = tf_buffer.lookupTransform(
-      move_group.getPlanningFrame(), "tool0", tf2::TimePointZero);
-    
-    std::cout << "\n=== Tool0 Transform (base_link → tool0) ===" << std::endl;
-    std::cout << "Position (x, y, z): (" 
-              << tool0_transform.transform.translation.x << ", "
-              << tool0_transform.transform.translation.y << ", "
-              << tool0_transform.transform.translation.z << ")" << std::endl;
-    std::cout << "Orientation (quaternion): ("
-              << tool0_transform.transform.rotation.x << ", "
-              << tool0_transform.transform.rotation.y << ", "
-              << tool0_transform.transform.rotation.z << ", "
-              << tool0_transform.transform.rotation.w << ")" << std::endl;
-    
-    // Convert quaternion to RPY
-    tf2::Quaternion q(
-      tool0_transform.transform.rotation.x,
-      tool0_transform.transform.rotation.y,
-      tool0_transform.transform.rotation.z,
-      tool0_transform.transform.rotation.w);
-    tf2::Matrix3x3 m(q);
-    double roll, pitch, yaw;
-    m.getRPY(roll, pitch, yaw);
-    std::cout << "Orientation (RPY in radians): (" 
-              << roll << ", " << pitch << ", " << yaw << ")" << std::endl;
-    std::cout << "Orientation (RPY in degrees): (" 
-              << roll * 180.0 / M_PI << ", " 
-              << pitch * 180.0 / M_PI << ", " 
-              << yaw * 180.0 / M_PI << ")" << std::endl;
-    
-    std::cout << "\n=== Difference (ee_tool_point - tool0) ===" << std::endl;
-    std::cout << "Position difference: ("
-              << current_pose.position.x - tool0_transform.transform.translation.x << ", "
-              << current_pose.position.y - tool0_transform.transform.translation.y << ", "
-              << current_pose.position.z - tool0_transform.transform.translation.z << ")" << std::endl;
-    
-    // Also get ee_tool_point position directly via TF for verification
-    try {
-      geometry_msgs::msg::TransformStamped ee_tool_point_transform;
-      ee_tool_point_transform = tf_buffer.lookupTransform(
-        move_group.getPlanningFrame(), move_group.getEndEffectorLink(), tf2::TimePointZero);
-      
-      std::cout << "\n=== ee_tool_point Transform (via TF) ===" << std::endl;
-      std::cout << "Position (x, y, z): (" 
-                << ee_tool_point_transform.transform.translation.x << ", "
-                << ee_tool_point_transform.transform.translation.y << ", "
-                << ee_tool_point_transform.transform.translation.z << ")" << std::endl;
-      
-      std::cout << "\n=== Verification: Difference (TF ee_tool_point - tool0) ===" << std::endl;
-      std::cout << "Position difference: ("
-                << ee_tool_point_transform.transform.translation.x - tool0_transform.transform.translation.x << ", "
-                << ee_tool_point_transform.transform.translation.y - tool0_transform.transform.translation.y << ", "
-                << ee_tool_point_transform.transform.translation.z - tool0_transform.transform.translation.z << ")" << std::endl;
-      std::cout << "Expected difference: (0, 0, 0.104) [gripper center point]" << std::endl;
-    } catch (const tf2::TransformException & ex) {
-      std::cout << "Could not get ee_tool_point transform: " << ex.what() << std::endl;
-    }
-  } catch (const tf2::TransformException & ex) {
-    std::cout << "Could not get tool0 transform: " << ex.what() << std::endl;
+  // Switch parameter for enabling joint path constraints (true=enable constraints, false=no constraints)
+  // Can be disabled via use_constraints:=false in launch/command line
+  if (!node->get_parameter("use_constraints", use_constraints)) {
+    use_constraints = true;  // Default value
   }
+  // Speed limiting parameters (0.0-1.0, percentage of max velocity/acceleration)
+  if (!node->get_parameter("max_velocity_scaling", max_velocity_scaling)) {
+    max_velocity_scaling = 0.15;  // Default: 15% of max velocity
+  }
+  if (!node->get_parameter("max_acceleration_scaling", max_acceleration_scaling)) {
+    max_acceleration_scaling = 0.15;  // Default: 15% of max acceleration
+  }
+  // Path planning parameters
+  if (!node->get_parameter("planning_time", planning_time)) {
+    planning_time = 60.0;  // Default: 60 seconds
+  }
+  if (!node->get_parameter("num_planning_attempts", num_planning_attempts)) {
+    num_planning_attempts = 200;  // Default: 200 attempts
+  }
+  
+  // Output constraint status and speed settings
+  std::cout << "\n=== Moving to (" << target_x << ", " << target_y << ", " << target_z << ") ===" << std::endl;
+  std::cout << "Joint constraints: " << (use_constraints ? "ENABLED" : "DISABLED") << std::endl;
+  std::cout << "Speed settings: velocity=" << (max_velocity_scaling * 100) << "%, acceleration=" << (max_acceleration_scaling * 100) << "%" << std::endl;
+  std::cout << "Planning settings: time=" << planning_time << "s, attempts=" << num_planning_attempts << std::endl;
+ 
+   using moveit::planning_interface::MoveGroupInterface;
+   auto move_group = MoveGroupInterface(node, "ur_manipulator");
+   
+   // Set end effector link to tool_point (topmost point of end effector)
+   // This way target position z directly corresponds to the topmost point of end effector
+   move_group.setEndEffectorLink("tool_point");
+   
+   rclcpp::executors::SingleThreadedExecutor executor;
+   executor.add_node(node);
+   auto spinner = std::thread([&executor]() { executor.spin(); });
+   
+  // Configure planning parameters (increased for better success rate)
+  move_group.setPlanningTime(planning_time);  // Planning time (default 60 seconds)
+  move_group.setNumPlanningAttempts(num_planning_attempts);  // Number of planning attempts (default 200)
+  // Note: GoalTolerance will be set later, along with position and orientation tolerances
+  // Set speed limits (using parameterized values)
+  move_group.setMaxVelocityScalingFactor(max_velocity_scaling);
+  move_group.setMaxAccelerationScalingFactor(max_acceleration_scaling);
+ 
+  // Get current pose
+  auto current_pose = move_group.getCurrentPose().pose;
+  std::cout << "Current position: (" << current_pose.position.x << ", " 
+            << current_pose.position.y << ", " << current_pose.position.z << ")" << std::endl;
 
   // Print current joint values
   auto joint_names = move_group.getJointNames();
@@ -206,187 +107,275 @@ int main(int argc, char* argv[])
     std::cout << "  " << joint_names[i] << ": " << joint_values[i] 
               << " rad (" << (joint_values[i] * 180.0 / M_PI) << " deg)" << std::endl;
   }
-
-  // Target pose: keep current orientation
-  geometry_msgs::msg::Pose target_pose = current_pose;
-  target_pose.position.x = target_x;
-  target_pose.position.y = target_y;
-  target_pose.position.z = target_z;
   
-  // Optionally setup joint constraints (can be disabled via USE_JOINT_CONSTRAINTS)
-  if (USE_JOINT_CONSTRAINTS) {
-    // Setup joint constraints (following ScrewDrivingBot reference implementation)
-    // Note: Setting constraints may cause MoveIt to fall back to OMPL if LIN doesn't support them
-    move_group.clearPathConstraints();  // Clear any existing constraints first
-    
+  // Check collision detection status
+  std::cout << "\n=== Collision Detection Status ===" << std::endl;
+  
+  // Check static collision objects
+  std::cout << "\n[Static Collision Objects]" << std::endl;
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  // Wait a bit for planning scene to sync
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  auto objects = planning_scene_interface.getObjects();
+  std::cout << "Number of static collision objects in planning scene: " << objects.size() << std::endl;
+  if (objects.size() > 0) {
+    std::cout << "Static collision object list:" << std::endl;
+    for (const auto& obj_pair : objects) {
+      std::cout << "  - " << obj_pair.first << std::endl;
+    }
+    std::cout << "✓ Static collision objects loaded" << std::endl;
+  } else {
+    std::cout << "⚠ Warning: No static collision objects in planning scene!" << std::endl;
+    std::cout << "  Please ensure: ros2 launch arm_manipulation add_collision_objects_launch.py" << std::endl;
+  }
+  
+  // Check dynamic obstacles monitor
+  std::cout << "\n[Dynamic Collision Detection]" << std::endl;
+  std::cout << "Dynamic obstacle monitoring topic: /obsFromImg" << std::endl;
+  std::cout << "Node name: planning_scene_bridge (dynamic_obstacle_control)" << std::endl;
+  std::cout << "Function: Subscribes to /obsFromImg topic, receives dynamic obstacle messages and updates planning scene" << std::endl;
+  std::cout << "Status check: Please confirm dynamic_obstacles_monitor node is running" << std::endl;
+  std::cout << "  - Check method: ros2 node list | grep planning_scene_bridge" << std::endl;
+  std::cout << "  - Or: ros2 topic echo /obsFromImg" << std::endl;
+  
+  std::cout << "\nCollision Detection Mechanism:" << std::endl;
+  std::cout << "  1. Static collision objects (table, walls, trash bin, etc.)" << std::endl;
+  std::cout << "     - Added at startup via add_collision_objects node" << std::endl;
+  std::cout << "     - Remain constant throughout operation" << std::endl;
+  std::cout << "  2. Dynamic collision objects (obstacles detected from vision system)" << std::endl;
+  std::cout << "     - Received in real-time via /obsFromImg topic" << std::endl;
+  std::cout << "     - dynamic_obstacle_control node automatically updates planning scene" << std::endl;
+  std::cout << "     - Can be dynamically added (ADD) or removed (REMOVE)" << std::endl;
+  std::cout << "  3. Collision detection during path planning" << std::endl;
+  std::cout << "     - MoveIt planners enable collision detection by default" << std::endl;
+  std::cout << "     - Automatically avoid all static and dynamic collision objects" << std::endl;
+  std::cout << "     - Collision detection performed in real-time during planning" << std::endl;
+ 
+   // Target pose: keep current orientation
+  // Note: Target position (x, y, z) is now relative to tool_point (topmost point of end effector)
+  // tool_point is at the top of the end effector, so z=0 means the topmost point is at floor level
+  // With this setup, if target z=0, the topmost point of end effector will be near the floor (table top)
+   geometry_msgs::msg::Pose target_pose = current_pose;
+   target_pose.position.x = target_x;
+   target_pose.position.y = target_y;
+   target_pose.position.z = target_z;
+   
+  // Print target pose information
+  std::cout << "\nTarget Pose:" << std::endl;
+  std::cout << "  Position: (" << target_pose.position.x << ", " 
+            << target_pose.position.y << ", " << target_pose.position.z << ")" << std::endl;
+  std::cout << "  Orientation (quaternion): (" << target_pose.orientation.x << ", " 
+            << target_pose.orientation.y << ", " << target_pose.orientation.z << ", "
+            << target_pose.orientation.w << ")" << std::endl;
+  
+  // Decide whether to add joint path constraints based on parameter switch
+  if (use_constraints) {
     moveit_msgs::msg::Constraints constraints;
     
-    // Create a map of joint names to current values for easy lookup
-    std::map<std::string, double> current_joint_map;
-    for (size_t i = 0; i < joint_names.size(); ++i) {
-      current_joint_map[joint_names[i]] = joint_values[i];
-    }
-    
-    // Setup joint constraints using your configuration (following reference pattern)
     for (const auto& config : JOINT_CONSTRAINTS) {
       moveit_msgs::msg::JointConstraint jc;
       jc.joint_name = config.joint_name;
-      
-      // Use current joint value as target if available, otherwise use configured value
-      if (current_joint_map.find(config.joint_name) != current_joint_map.end()) {
-        jc.position = current_joint_map[config.joint_name];
-        std::cout << "  Using current value for " << config.joint_name 
-                  << ": " << jc.position << " rad (" 
-                  << (jc.position * 180.0 / M_PI) << " deg)" << std::endl;
-      } else {
-        jc.position = config.position;
-        std::cout << "  Using configured value for " << config.joint_name 
-                  << ": " << jc.position << " rad (" 
-                  << (jc.position * 180.0 / M_PI) << " deg)" << std::endl;
-      }
-      
-      // Set tolerance from your configuration
+      jc.position = config.position;
       jc.tolerance_above = config.tolerance_above;
       jc.tolerance_below = config.tolerance_below;
-      jc.weight = 1.0;  // Use weight 1.0 as in reference implementation
-      
+      jc.weight = 1.0;
       constraints.joint_constraints.push_back(jc);
       
-      // Print constraint range for debugging
-      double min_allowed = jc.position - jc.tolerance_below;
-      double max_allowed = jc.position + jc.tolerance_above;
-      std::cout << "    Constraint range: [" << min_allowed << ", " << max_allowed 
-                << "] rad ([" << (min_allowed * 180.0 / M_PI) << "°, " 
-                << (max_allowed * 180.0 / M_PI) << "°])" << std::endl;
-    }
-    
-    // Set path constraints (following reference implementation pattern)
-    move_group.setPathConstraints(constraints);
-    std::cout << "\n✓ Joint constraints set (using your configuration)" << std::endl;
-    std::cout << "  Total constraints: " << constraints.joint_constraints.size() << std::endl;
-  } else {
-    // Ensure there are absolutely no path constraints when disabled
-    move_group.clearPathConstraints();
-    std::cout << "\n⚙ Joint constraints DISABLED (USE_JOINT_CONSTRAINTS = false)" << std::endl;
-  }
-  
-  std::cout << "Target position (" << move_group.getEndEffectorLink() << "): (" 
-            << target_pose.position.x << ", " 
-            << target_pose.position.y << ", " 
-            << target_pose.position.z << ")" << std::endl;
-
-  // Use MoveIt's Cartesian path (computeCartesianPath) to generate a straight-line motion
-  std::cout << "\n=== Cartesian path (linear interpolation) ===" << std::endl;
-  std::vector<geometry_msgs::msg::Pose> waypoints;
-  waypoints.push_back(current_pose);
-  waypoints.push_back(target_pose);
-
-  moveit_msgs::msg::RobotTrajectory trajectory;
-  const double eef_step = 0.001;     // 1 mm step for end-effector
-  const double jump_threshold = 0.0; // disable jump detection
-
-  double fraction = move_group.computeCartesianPath(
-      waypoints, eef_step, jump_threshold, trajectory);
-
-  std::cout << "  Path fraction: " << (fraction * 100.0) << "% of straight line planned" << std::endl;
-
-  moveit::planning_interface::MoveGroupInterface::Plan plan;
-  bool success = false;
-
-  // Allow a certain portion of the path to deviate (e.g., around obstacles) as long as most of it is linear
-  const double MIN_FRACTION = 0.85;
-  if (fraction >= MIN_FRACTION) {
-    std::cout << "✓ Cartesian path computed successfully (fraction >= " 
-              << (MIN_FRACTION * 100.0) << "%), executing..." << std::endl;
-    plan.trajectory_ = trajectory;
-
-    // Continue using the previously configured velocity/acceleration scaling here
-    moveit::core::MoveItErrorCode execute_result = move_group.execute(plan);
-    success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
-
-    if (!success) {
-      std::cout << "✗ Cartesian execution failed, error code: " << execute_result.val
-                << " (" << getErrorCodeName(execute_result) << ")" << std::endl;
-    }
-  } else {
-    std::cout << "✗ Cartesian path planning fraction too low, falling back to normal OMPL planning..."
-              << std::endl;
-
-    // Fallback: use standard OMPL planning to the same target pose (path may be non-linear)
-    move_group.setPoseTarget(target_pose);
-    moveit::planning_interface::MoveGroupInterface::Plan joint_plan;
-    auto plan_result = move_group.plan(joint_plan);
-
-    if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-      std::cout << "✓ Fallback OMPL planning succeeded, executing trajectory..." << std::endl;
-      auto execute_result = move_group.execute(joint_plan);
-      success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
-      if (!success) {
-        std::cout << "✗ Fallback execution failed, error code: " << execute_result.val
-                  << " (" << getErrorCodeName(execute_result) << ")" << std::endl;
+      // Output constraint information and verify if start point is within constraint range
+      double min_val = jc.position - jc.tolerance_below;
+      double max_val = jc.position + jc.tolerance_above;
+      
+      // Find current joint value
+      double current_joint_val = 0.0;
+      bool found_joint = false;
+      for (size_t i = 0; i < joint_names.size(); ++i) {
+        if (joint_names[i] == jc.joint_name) {
+          current_joint_val = joint_values[i];
+          found_joint = true;
+          break;
+        }
       }
-    } else {
-      std::cout << "✗ Fallback OMPL planning also failed, error code: " << plan_result.val
-                << " (" << getErrorCodeName(plan_result) << ")" << std::endl;
+      
+      std::cout << "  Constraint: " << jc.joint_name 
+                << " Range: [" << (min_val * 180.0 / M_PI) << "°, "
+                << (max_val * 180.0 / M_PI) << "°] (center: " 
+                << (jc.position * 180.0 / M_PI) << "°)";
+      
+      if (found_joint) {
+        bool in_range = (current_joint_val >= min_val && current_joint_val <= max_val);
+        std::cout << " Current: " << (current_joint_val * 180.0 / M_PI) << "°"
+                  << (in_range ? " ✓" : " ✗ Out of range!");
+        if (!in_range) {
+          std::cout << "\n    Warning: Start point is not within constraint range, planning may fail!";
+        }
+      }
+      std::cout << std::endl;
+    }
+    move_group.setPathConstraints(constraints);
+    std::cout << "\nJoint constraints ENABLED (use_constraints=true)" << std::endl;
+    std::cout << "Set " << constraints.joint_constraints.size() << " joint constraints" << std::endl;
+    std::cout << "Note: Path constraints require all points along the entire path to be within constraint range, not just start and end points!" << std::endl;
+  } else {
+    std::cout << "Joint constraints DISABLED (use_constraints=false)" << std::endl;
+  }
+   
+  // Set target pose with position and orientation tolerances
+  // Set target pose, allowing some tolerance in position and orientation
+  move_group.setPoseTarget(target_pose);
+  
+  // Set goal tolerances to give planner more sampling space in goal region
+  // This is important for solving "Insufficient states in sampleable goal region" errors
+  // Increasing tolerance makes it easier for planner to find configurations satisfying the goal
+  const double goal_position_tolerance = 0.01;      // 2cm
+  const double goal_orientation_tolerance = 0.1;    // ~11°
+  const double goal_tolerance = 0.01;               // 2cm overall
+
+  move_group.setGoalPositionTolerance(goal_position_tolerance);
+  move_group.setGoalOrientationTolerance(goal_orientation_tolerance);
+  move_group.setGoalTolerance(goal_tolerance);
+  
+  // Ensure start state is correct
+  move_group.setStartStateToCurrentState();
+  
+  std::cout << "\nGoal Tolerance Settings:" << std::endl;
+  std::cout << "  Position tolerance: " << goal_position_tolerance << " m" << std::endl;
+  std::cout << "  Orientation tolerance: " << goal_orientation_tolerance << " rad (" 
+            << (goal_orientation_tolerance * 180.0 / M_PI) << " deg)" << std::endl;
+  std::cout << "  Overall tolerance: " << goal_tolerance << " m" << std::endl;
+  
+  // Define multiple alternative planners (sorted by priority)
+  struct PlannerConfig {
+    std::string name;
+    std::string description;
+  };
+  
+  std::vector<PlannerConfig> planners = {
+    {"LIN", "Pilz LIN planner (linear motion)"},
+    {"RRTConnectkConfigDefault", "RRTConnect (bidirectional RRT)"},
+    {"PRMstarkConfigDefault", "PRM* (probabilistic roadmap, constraint-friendly)"},
+    {"BITstarkConfigDefault", "BIT* (batch informed tree, optimal paths)"},
+    {"KPIECEkConfigDefault", "KPIECE (grid-based, constraint-friendly)"},
+    {"BKPIECEkConfigDefault", "BKPIECE (bidirectional KPIECE)"},
+    {"ESTkConfigDefault", "EST (expansive space tree, constraint-friendly)"},
+    {"SBLkConfigDefault", "SBL (single-query bidirectional lazy)"}
+  };
+  
+   moveit::planning_interface::MoveGroupInterface::Plan plan;
+   bool success = false;
+  std::string successful_planner;
+  
+  // First try all planners (with constraints if enabled)
+  std::cout << "\n=== Attempting Path Planning ===" << std::endl;
+  for (const auto& planner_cfg : planners) {
+    std::cout << "\nTrying planner: " << planner_cfg.description << " (" << planner_cfg.name << ")..." << std::endl;
+    move_group.setPlannerId(planner_cfg.name);
+    
+    auto result = move_group.plan(plan);
+    if (result == moveit::core::MoveItErrorCode::SUCCESS) {
+      std::cout << "✓ " << planner_cfg.name << " planning succeeded!" << std::endl;
+      std::cout << "  Planned path contains " << plan.trajectory_.joint_trajectory.points.size() << " waypoints" << std::endl;
+      
+      // Try to execute (MoveIt will automatically validate path before execution)
+      std::cout << "Executing planned path..." << std::endl;
+      auto exec_result = move_group.execute(plan);
+      if (exec_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        success = true;
+        successful_planner = planner_cfg.name;
+        std::cout << "✓ Execution succeeded!" << std::endl;
+        break;
+      } else {
+        std::cout << "✗ Execution failed (error code: " << exec_result.val << ")" << std::endl;
+        if (exec_result == moveit::core::MoveItErrorCode::PLANNING_FAILED) {
+          std::cout << "  Reason: Path validation failed (may be too close to collision objects)" << std::endl;
+          std::cout << "  Hint: Blue box safety margin reduced to 0.5cm, if still failing, may need to adjust target position" << std::endl;
+        }
+        // Continue trying next planner
+      }
+   } else {
+      std::cout << "✗ " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
     }
   }
   
-  move_group.clearPathConstraints();
-
-  if (success) {
-    std::cout << "\n✓ Motion executed!" << std::endl;
+  // If all planners failed and constraints are enabled, try without constraints
+  if (!success && use_constraints) {
+    std::cout << "\n=== All constrained planners failed ===" << std::endl;
+    std::cout << "\nCause Analysis:" << std::endl;
+    std::cout << "  Path constraints require all points along the entire path to be within constraint range," << std::endl;
+    std::cout << "  not just start and end points. Even if start and end points are within constraints," << std::endl;
+    std::cout << "  the path from start to end may need to pass through some intermediate states," << std::endl;
+    std::cout << "  which may violate constraints, causing planning to fail." << std::endl;
+    std::cout << "\nAttempting to replan with joint constraints disabled (path may not satisfy constraints)..." << std::endl;
+   move_group.clearPathConstraints();
+ 
+    // Retry a few main planners (without constraints)
+    std::vector<PlannerConfig> no_constraint_planners = {
+      {"RRTConnectkConfigDefault", "RRTConnect (no constraints)"},
+      {"PRMstarkConfigDefault", "PRM* (no constraints)"},
+      {"BITstarkConfigDefault", "BIT* (no constraints)"},
+      {"KPIECEkConfigDefault", "KPIECE (no constraints)"}
+    };
     
-    // Get actual reached position
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));  // Wait for motion to settle
-    auto final_pose_stamped = move_group.getCurrentPose();
-    auto final_pose = final_pose_stamped.pose;
-    
-    std::cout << "\n=== Position Verification ===" << std::endl;
-    std::cout << "Target position (" << move_group.getEndEffectorLink() << "): (" 
-              << target_pose.position.x << ", " 
-              << target_pose.position.y << ", " 
-              << target_pose.position.z << ")" << std::endl;
-    std::cout << "Actual reached position (" << move_group.getEndEffectorLink() << "): (" 
-              << final_pose.position.x << ", " 
-              << final_pose.position.y << ", " 
-              << final_pose.position.z << ")" << std::endl;
-    std::cout << "Position error: ("
-              << final_pose.position.x - target_pose.position.x << ", "
-              << final_pose.position.y - target_pose.position.y << ", "
-              << final_pose.position.z - target_pose.position.z << ")" << std::endl;
-    
-    double position_error = std::sqrt(
-      std::pow(final_pose.position.x - target_pose.position.x, 2) +
-      std::pow(final_pose.position.y - target_pose.position.y, 2) +
-      std::pow(final_pose.position.z - target_pose.position.z, 2));
-    std::cout << "Total position error: " << position_error << " m (" << position_error * 1000 << " mm)" << std::endl;
-    
-    // Also check tool0 position for reference
-    try {
-      tf2_ros::Buffer tf_buffer_final(node->get_clock());
-      tf2_ros::TransformListener tf_listener_final(tf_buffer_final);
-      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    for (const auto& planner_cfg : no_constraint_planners) {
+      std::cout << "\nTrying planner: " << planner_cfg.description << " (" << planner_cfg.name << ")..." << std::endl;
+      move_group.setPlannerId(planner_cfg.name);
       
-      auto tool0_final = tf_buffer_final.lookupTransform(
-        move_group.getPlanningFrame(), "tool0", tf2::TimePointZero);
-      
-      std::cout << "\nFinal tool0 position: ("
-                << tool0_final.transform.translation.x << ", "
-                << tool0_final.transform.translation.y << ", "
-                << tool0_final.transform.translation.z << ")" << std::endl;
-      std::cout << "Final ee_tool_point - tool0 difference: ("
-                << final_pose.position.x - tool0_final.transform.translation.x << ", "
-                << final_pose.position.y - tool0_final.transform.translation.y << ", "
-                << final_pose.position.z - tool0_final.transform.translation.z << ")" << std::endl;
-      std::cout << "Expected difference: (0, 0, 0.104) [gripper center point]" << std::endl;
-    } catch (const tf2::TransformException & ex) {
-      std::cout << "Could not get final tool0 transform: " << ex.what() << std::endl;
+      auto result = move_group.plan(plan);
+      if (result == moveit::core::MoveItErrorCode::SUCCESS) {
+        std::cout << "✓ " << planner_cfg.name << " planning succeeded (no constraints)!" << std::endl;
+        std::cout << "  Planned path contains " << plan.trajectory_.joint_trajectory.points.size() << " waypoints" << std::endl;
+        
+        // Try to execute
+        std::cout << "Executing planned path..." << std::endl;
+        auto exec_result = move_group.execute(plan);
+        if (exec_result == moveit::core::MoveItErrorCode::SUCCESS) {
+          success = true;
+          successful_planner = planner_cfg.name + " (no constraints)";
+          std::cout << "✓ Execution succeeded!" << std::endl;
+          break;
+        } else {
+          std::cout << "✗ Execution failed (error code: " << exec_result.val << ")" << std::endl;
+        }
+      } else {
+        std::cout << "✗ " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
+        
+        // If "Insufficient states in sampleable goal region" error, provide more detailed diagnosis
+        if (result == moveit::core::MoveItErrorCode::PLANNING_FAILED) {
+          std::cout << "   Diagnosis: Target region may not be able to sample valid states" << std::endl;
+          std::cout << "   Suggestion: Check if target position is reachable, or try different target orientation" << std::endl;
+        }
+      }
     }
   } else {
-    std::cout << "\n✗ Failed!" << std::endl;
+    move_group.clearPathConstraints();
   }
 
-  rclcpp::shutdown();
-  spinner.join();
-  return success ? 0 : 1;  // Return 0 on success, 1 on failure
-}
+  // Output final result
+   if (success) {
+    std::cout << "\n✓ Success! Planner used: " << successful_planner << std::endl;
+    auto final_pose = move_group.getCurrentPose().pose;
+    std::cout << "Final position: (" << final_pose.position.x << ", " 
+              << final_pose.position.y << ", " << final_pose.position.z << ")" << std::endl;
+  } else {
+    std::cout << "\n✗ Failed! All planners unable to find path from current position to target position." << std::endl;
+    std::cout << "\nPossible solutions:" << std::endl;
+    std::cout << "  1. Check if target position is within robot workspace" << std::endl;
+    std::cout << "  2. Check if collision objects are blocking the path" << std::endl;
+    std::cout << "  3. 'Insufficient states in sampleable goal region' error usually means:" << std::endl;
+    std::cout << "     - Target position is unreachable (may be outside workspace)" << std::endl;
+    std::cout << "     - Target orientation doesn't match reachable orientations" << std::endl;
+    std::cout << "     - tool_point position calculation may have issues" << std::endl;
+    if (use_constraints) {
+      std::cout << "  4. Path constraints may be too strict, try disabling with use_constraints:=false" << std::endl;
+      std::cout << "  5. Or relax joint constraint ranges (increase tolerance)" << std::endl;
+      std::cout << "  6. Path constraints require entire path to satisfy constraints, not just start and end points" << std::endl;
+   } else {
+      std::cout << "  4. Adjust target position or use intermediate waypoints" << std::endl;
+      std::cout << "  5. Check robot joint limits" << std::endl;
+      std::cout << "  6. Try adjusting target pose orientation (current orientation may be unreachable)" << std::endl;
+    }
+   }
+ 
+   rclcpp::shutdown();
+   spinner.join();
+   return 0;
+ }

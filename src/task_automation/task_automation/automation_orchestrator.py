@@ -70,11 +70,10 @@ class AutomationOrchestrator(Node):
         self.declare_parameter('z_min', 0.05)    # Minimum Z coordinate (safety lower bound)
         self.declare_parameter('z_max', 1.80)     # Maximum Z coordinate (safety upper bound)
         
-        # Home position configuration (Cartesian, base_link -> tool_point)
-        # Default home: x=0.5, y=0.15, z=0.4
-        self.declare_parameter('home_x', 0.5)
-        self.declare_parameter('home_y', 0.15)
-        self.declare_parameter('home_z', 0.4)
+        # Home position configuration (Cartesian)
+        self.declare_parameter('home_x', 0.25)
+        self.declare_parameter('home_y', 0.10)
+        self.declare_parameter('home_z', 0.55)
         
         # Home joint angles (radians) - hardcoded default
         self.home_joints = {
@@ -92,10 +91,15 @@ class AutomationOrchestrator(Node):
         self.declare_parameter('trash_z', 0.25)  # Trash bin discard position (increased from 0.20 to 0.25 for safety)
         
         # Task flow parameters
-        self.declare_parameter('wait_between_leaves', 2.0)  # Wait time between processing leaves (seconds)
-        self.declare_parameter('arm_movement_timeout', 60.0)  # Robot arm movement timeout (seconds)
+        self.declare_parameter('wait_between_leaves', 2.0)    # Wait time between processing leaves (seconds)
+        # Increase default movement timeout to be larger than MoveIt planning_time (60s) plus execution margin
+        self.declare_parameter('arm_movement_timeout', 120.0)  # Robot arm movement timeout (seconds)
         self.declare_parameter('detection_timeout', 10.0)    # Detection service timeout (seconds)
         self.declare_parameter('arduino_action_wait', 3.0)    # Wait time after Arduino action (seconds)
+        self.declare_parameter('spray_height_offset', 0.05)   # Additional height offset for spray operation (meters)
+        self.declare_parameter('use_joint_constraints', True) # Enable joint path constraints for arm movement
+        self.declare_parameter('max_velocity_scaling', 0.15)  # Maximum velocity scaling factor (0.0-1.0, default: 0.15 = 15%)
+        self.declare_parameter('max_acceleration_scaling', 0.15)  # Maximum acceleration scaling factor (0.0-1.0, default: 0.15 = 15%)
         
         # Store parameter values
         self.min_area = self.get_parameter('min_area').value
@@ -115,6 +119,10 @@ class AutomationOrchestrator(Node):
         self.arm_movement_timeout = self.get_parameter('arm_movement_timeout').value
         self.detection_timeout = self.get_parameter('detection_timeout').value
         self.arduino_action_wait = self.get_parameter('arduino_action_wait').value
+        self.spray_height_offset = self.get_parameter('spray_height_offset').value
+        self.use_joint_constraints = self.get_parameter('use_joint_constraints').value
+        self.max_velocity_scaling = self.get_parameter('max_velocity_scaling').value
+        self.max_acceleration_scaling = self.get_parameter('max_acceleration_scaling').value
     
     def _initialize_home_from_current_pose(self):
         """
@@ -135,6 +143,9 @@ class AutomationOrchestrator(Node):
         self.get_logger().info(f"Home position: ({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})")
         self.get_logger().info(f"Trash bin position: ({self.trash_x:.3f}, {self.trash_y:.3f}, {self.trash_z:.3f})")
         self.get_logger().info(f"Flow parameters: wait_between_leaves={self.wait_between_leaves}s")
+        self.get_logger().info(f"Spray height offset: {self.spray_height_offset:.3f}m")
+        self.get_logger().info(f"Joint constraints: {'ENABLED' if self.use_joint_constraints else 'DISABLED'}")
+        self.get_logger().info(f"Speed limits: velocity={self.max_velocity_scaling*100:.0f}%, acceleration={self.max_acceleration_scaling*100:.0f}%")
         self.get_logger().info("=" * 80)
     
     def wait_for_service(self, timeout_sec=30.0):
@@ -313,7 +324,10 @@ class AutomationOrchestrator(Node):
         try:
             cmd = [
                 'ros2', 'launch', 'arm_manipulation', 'move_arm_to_pose_launch.py',
-                f'x:={target_x}', f'y:={target_y}', f'z:={target_z}'
+                f'x:={target_x}', f'y:={target_y}', f'z:={target_z}',
+                f'use_constraints:={str(self.use_joint_constraints).lower()}',
+                f'max_velocity_scaling:={self.max_velocity_scaling}',
+                f'max_acceleration_scaling:={self.max_acceleration_scaling}'
             ]
             
             self.get_logger().info(f"Executing command: {' '.join(cmd)}")
@@ -378,69 +392,19 @@ class AutomationOrchestrator(Node):
     
     def move_arm_to_home(self):
         """
-        Move robot arm to home position.
-        Current implementation:
-          1) Try to use MoveIt Cartesian planning to reach home pose (with collision checking)
-          2) If MoveIt fails, fall back to the original joint trajectory command (no collision checking)
+
+        Move robot arm to home position using joint angles
         
         Returns:
             bool: Whether movement was successful
         """
+        # 使用 MoveIt (move_arm_to_pose) 规划回 home，带完整碰撞检测
         self.get_logger().info(
-            f"Returning to home using MoveIt (cartesian): "
+            f"Returning to home position via MoveIt: "
             f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
         )
-
-        # 1) Preferred: use move_arm_to_pose (MoveIt planning with collision checking), no bias for home pose
-        moveit_success = self.move_arm_to_pose(
-            self.home_x, self.home_y, self.home_z, apply_bias=False
-        )
-
-        if moveit_success:
-            self.get_logger().info("✓ Robot arm returned to home position via MoveIt")
-            return True
-
-        self.get_logger().warn(
-            "⚠ MoveIt return-to-home failed, falling back to joint trajectory (no collision checking)"
-        )
-
-        try:
-            cmd = f'''ros2 action send_goal /scaled_joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{{
-  trajectory: {{
-    joint_names: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint, wrist_1_joint, wrist_2_joint, wrist_3_joint],
-    points: [
-      {{ positions: [{self.home_joints['shoulder_pan_joint']}, {self.home_joints['shoulder_lift_joint']}, {self.home_joints['elbow_joint']}, {self.home_joints['wrist_1_joint']}, {self.home_joints['wrist_2_joint']}, {self.home_joints['wrist_3_joint']}], time_from_start: {{sec: 4, nanosec: 0}} }}
-    ]
-  }}
-}}"'''
-
-            self.get_logger().info("Executing fallback joint trajectory command...")
-
-            import os
-            env = os.environ.copy()
-
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=self.arm_movement_timeout,
-                env=env,
-            )
-
-            if result.returncode == 0:
-                self.get_logger().info("✓ Robot arm returned to home position (fallback joints)")
-                return True
-
-            self.get_logger().error(f"❌ Fallback return to home failed: {result.stderr}")
-            return False
-
-        except subprocess.TimeoutExpired:
-            self.get_logger().error(f"❌ Fallback return to home timeout (>{self.arm_movement_timeout}s)")
-            return False
-        except Exception as e:
-            self.get_logger().error(f"❌ Fallback return to home exception: {str(e)}")
-            return False
+        # home 位置不做 bias，直接用绝对坐标
+        return self.move_arm_to_pose(self.home_x, self.home_y, self.home_z, apply_bias=False)
     
     def send_arduino_command(self, command):
         """
@@ -495,30 +459,45 @@ class AutomationOrchestrator(Node):
         leaf_type = "unhealthy (with yellow tape)" if has_yellow_tape else "healthy"
         self.get_logger().info(f"\nProcessing leaf {leaf_index}/{total_leaves} ({leaf_type})...")
         
-        # Step 1: Move to leaf position
-        if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, leaf_point.z):
-            self.get_logger().warn(f"⚠ Leaf {leaf_index} movement failed")
-            return False
-        
         if has_yellow_tape:
             # Unhealthy leaf workflow:
-            # 1. Open vacuum (VACUUM_ON)
-            # 2. Wait 3 seconds
-            # 3. Move to trash bin (vacuum stays on during movement)
-            # 4. Close vacuum (VACUUM_OFF) when arrived at bin
+            # 1. Move to spray height first (above leaf)
+            # 2. Move vertically down to leaf target Z
+            # 3. Open vacuum (VACUUM_ON)
+            # 4. Wait 3 seconds
+            # 5. Move to trash bin (vacuum stays on during movement)
+            # 6. Close vacuum (VACUUM_OFF) when arrived at bin
             
             self.get_logger().info(f"Leaf {leaf_index} is unhealthy, starting vacuum pickup...")
             
-            # Open vacuum
+            # Step 1: Move to spray height first (above the leaf)
+            spray_height = leaf_point.z + self.spray_height_offset
+            self.get_logger().info(
+                f"Step 1: Moving to spray height above leaf: Z={spray_height:.3f}m "
+                f"(target Z={leaf_point.z:.3f}m + offset={self.spray_height_offset:.3f}m)"
+            )
+            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, spray_height):
+                self.get_logger().warn(f"⚠ Leaf {leaf_index} movement to spray height failed")
+                return False
+            
+            # Step 2: Move vertically down to leaf target Z
+            self.get_logger().info(
+                f"Step 2: Moving vertically down to leaf target Z: {leaf_point.z:.3f}m"
+            )
+            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, leaf_point.z):
+                self.get_logger().warn(f"⚠ Leaf {leaf_index} vertical movement to target Z failed")
+                return False
+            
+            # Step 3: Open vacuum
             if not self.send_arduino_command("VACUUM_ON"):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to open vacuum")
                 return False
             
-            # Wait 3 seconds
+            # Step 4: Wait 3 seconds
             self.get_logger().info(f"Waiting {self.arduino_action_wait}s for vacuum to pick up leaf...")
             time.sleep(self.arduino_action_wait)
             
-            # Move to trash bin (vacuum stays on)
+            # Step 5: Move to trash bin (vacuum stays on)
             self.get_logger().info(f"Moving to trash bin with vacuum ON...")
             if not self.move_arm_to_trash():
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} movement to trash bin failed")
@@ -526,33 +505,39 @@ class AutomationOrchestrator(Node):
                 self.send_arduino_command("VACUUM_OFF")
                 return False
             
-            # Close vacuum when arrived at bin
+            # Step 6: Close vacuum when arrived at bin
             self.get_logger().info(f"Arrived at trash bin, closing vacuum...")
             if not self.send_arduino_command("VACUUM_OFF"):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to close vacuum")
                 return False
             
             self.get_logger().info(f"✓ Leaf {leaf_index} discarded successfully")
-            
+        
         else:
             # Healthy leaf workflow:
-            # 1. Open spray (SPRAY_ON)
-            # 2. Wait 3 seconds
-            # 3. Close spray (SPRAY_OFF)
-            # 4. Move to next leaf (no trash bin visit)
+            # Step 1: Move to leaf position with spray height offset
+            target_z = leaf_point.z + self.spray_height_offset
+            self.get_logger().info(
+                f"Applying spray height offset: original Z={leaf_point.z:.3f}m, "
+                f"with offset={target_z:.3f}m (offset={self.spray_height_offset:.3f}m)"
+            )
             
+            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, target_z):
+                self.get_logger().warn(f"⚠ Leaf {leaf_index} movement failed")
+                return False
+            
+            # Step 2: Open spray (SPRAY_ON)
             self.get_logger().info(f"Leaf {leaf_index} is healthy, starting spray treatment...")
             
-            # Open spray
             if not self.send_arduino_command("SPRAY_ON"):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to open spray")
                 return False
             
-            # Wait 3 seconds
+            # Step 3: Wait 3 seconds
             self.get_logger().info(f"Waiting {self.arduino_action_wait}s for spray treatment...")
             time.sleep(self.arduino_action_wait)
             
-            # Close spray
+            # Step 4: Close spray (SPRAY_OFF)
             if not self.send_arduino_command("SPRAY_OFF"):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to close spray")
                 return False

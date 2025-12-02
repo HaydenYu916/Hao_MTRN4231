@@ -39,6 +39,8 @@ class LeafVisualizationNode(Node):
         # Update frequency limiting
         self.last_update_time = None
         self.min_update_interval = 0.1  # Minimum update interval (seconds), approximately 10Hz
+        self.last_blue_box_update_time = None
+        self.min_blue_box_update_interval = 0.5  # Blue box update interval (seconds), 2Hz to reduce RViz load during planning
         
         # Subscribe to annotated image (for monitoring)
         self.annotated_image_sub = self.create_subscription(
@@ -141,19 +143,20 @@ class LeafVisualizationNode(Node):
     def blue_box_results_callback(self, msg):
         """Handle blue box detection results and update markers"""
         try:
-            # Frequency limiting: only update when minimum interval is exceeded
+            # Frequency limiting: use longer interval for blue boxes to reduce RViz load
+            # This is especially important during path planning when RViz is rendering many things
             now = self.get_clock().now()
-            if self.last_update_time is not None:
-                time_diff = (now - self.last_update_time).nanoseconds / 1e9
-                if time_diff < self.min_update_interval:
-                    return  # Skip this update
+            if self.last_blue_box_update_time is not None:
+                time_diff = (now - self.last_blue_box_update_time).nanoseconds / 1e9
+                if time_diff < self.min_blue_box_update_interval:
+                    return  # Skip this update to reduce RViz load
             
             data = json.loads(msg.data)
             blue_boxes = data.get('blue_boxes', [])
             
             self.get_logger().debug(f'Received blue box results: {len(blue_boxes)} boxes')
             
-            self.last_update_time = now
+            self.last_blue_box_update_time = now
             self.update_blue_box_markers(blue_boxes)
         except Exception as e:
             self.get_logger().error(f'✗ Error processing blue box results: {str(e)}')
@@ -560,15 +563,39 @@ class LeafVisualizationNode(Node):
             
             self.last_blue_box_count = current_box_count
             
-            # Always publish marker array
+            # Only publish if there are markers to publish
+            # Reduce publishing frequency during path planning to prevent RViz freezing
             if len(marker_array.markers) > 0:
-                self.blue_box_marker_pub.publish(marker_array)
-                num_add = len([m for m in marker_array.markers if m.action == Marker.ADD])
-                num_delete = len([m for m in marker_array.markers if m.action == Marker.DELETE])
-                if num_delete > 0 or num_add > 0:
-                    self.get_logger().debug(
-                        f'Blue boxes (obstacles): {num_add} active, {num_delete} deleted'
-                    )
+                # Track markers before adding new ones to detect new boxes
+                existing_marker_ids_before = self.all_blue_box_marker_ids.copy()
+                
+                # Throttle publishing: only publish if significant changes or enough time has passed
+                should_publish = True
+                if len(marker_array.markers) > 5:  # Multiple markers, be more conservative
+                    # Check if this is just position updates (ADD actions with existing IDs)
+                    num_new = len([m for m in marker_array.markers 
+                                  if m.action == Marker.ADD and m.id not in existing_marker_ids_before])
+                    num_deletes = len([m for m in marker_array.markers if m.action == Marker.DELETE])
+                    # Only publish if there are new boxes or deletions, or if enough time passed
+                    if num_new == 0 and num_deletes == 0:
+                        # This is just position updates, check time since last publish
+                        if hasattr(self, '_last_blue_box_publish_time'):
+                            time_since_publish = (self.get_clock().now() - self._last_blue_box_publish_time).nanoseconds / 1e9
+                            if time_since_publish < 1.0:  # Don't publish position updates more than 1Hz
+                                should_publish = False
+                
+                if should_publish:
+                    self.blue_box_marker_pub.publish(marker_array)
+                    if not hasattr(self, '_last_blue_box_publish_time'):
+                        self._last_blue_box_publish_time = self.get_clock().now()
+                    else:
+                        self._last_blue_box_publish_time = self.get_clock().now()
+                    num_add = len([m for m in marker_array.markers if m.action == Marker.ADD])
+                    num_delete = len([m for m in marker_array.markers if m.action == Marker.DELETE])
+                    if num_delete > 0 or num_add > 0:
+                        self.get_logger().debug(
+                            f'Blue boxes (obstacles): {num_add} active, {num_delete} deleted'
+                        )
             
         except Exception as e:
             self.get_logger().error(f'✗ Blue box RViz visualization error: {str(e)}')

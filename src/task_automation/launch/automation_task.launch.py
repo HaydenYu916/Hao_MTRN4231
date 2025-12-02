@@ -40,13 +40,13 @@ def generate_launch_description():
     
     bias_z_arg = DeclareLaunchArgument(
         'bias_z',
-        default_value='0.04',
+        default_value='0.050',
         description='Z-axis coordinate bias (meters)'
     )
     
     z_min_arg = DeclareLaunchArgument(
         'z_min',
-        default_value='0.01',
+        default_value='0.015',
         description='Z coordinate minimum constraint (meters)'
     )
     
@@ -58,19 +58,19 @@ def generate_launch_description():
     
     home_x_arg = DeclareLaunchArgument(
         'home_x',
-        default_value='0.6',
+        default_value='0.25',
         description='Home position X coordinate (meters)'
     )
     
     home_y_arg = DeclareLaunchArgument(
         'home_y',
-        default_value='0.15',
+        default_value='0.10',
         description='Home position Y coordinate (meters)'
     )
     
     home_z_arg = DeclareLaunchArgument(
         'home_z',
-        default_value='0.3',
+        default_value='0.65',
         description='Home position Z coordinate (meters)'
     )
     
@@ -88,7 +88,7 @@ def generate_launch_description():
     
     trash_z_arg = DeclareLaunchArgument(
         'trash_z',
-        default_value='0.20',
+        default_value='0.25',
         description='Trash bin discard position Z coordinate (meters)'
     )
     
@@ -96,6 +96,30 @@ def generate_launch_description():
         'arduino_action_wait',
         default_value='3.0',
         description='Wait time after Arduino action (seconds)'
+    )
+    
+    spray_height_offset_arg = DeclareLaunchArgument(
+        'spray_height_offset',
+        default_value='0.08',
+        description='Additional height offset for spray operation (meters)'
+    )
+    
+    use_joint_constraints_arg = DeclareLaunchArgument(
+        'use_joint_constraints',
+        default_value='true',
+        description='Enable joint path constraints for arm movement (true/false)'
+    )
+    
+    max_velocity_scaling_arg = DeclareLaunchArgument(
+        'max_velocity_scaling',
+        default_value='0.15',
+        description='Maximum velocity scaling factor (0.0-1.0, default: 0.15 = 15% max speed)'
+    )
+    
+    max_acceleration_scaling_arg = DeclareLaunchArgument(
+        'max_acceleration_scaling',
+        default_value='0.15',
+        description='Maximum acceleration scaling factor (0.0-1.0, default: 0.15 = 15% max acceleration)'
     )
     
     # Create automation orchestrator node
@@ -119,6 +143,10 @@ def generate_launch_description():
             'trash_y': ParameterValue(LaunchConfiguration('trash_y'), value_type=float),
             'trash_z': ParameterValue(LaunchConfiguration('trash_z'), value_type=float),
             'arduino_action_wait': ParameterValue(LaunchConfiguration('arduino_action_wait'), value_type=float),
+            'spray_height_offset': ParameterValue(LaunchConfiguration('spray_height_offset'), value_type=float),
+            'use_joint_constraints': ParameterValue(LaunchConfiguration('use_joint_constraints'), value_type=bool),
+            'max_velocity_scaling': ParameterValue(LaunchConfiguration('max_velocity_scaling'), value_type=float),
+            'max_acceleration_scaling': ParameterValue(LaunchConfiguration('max_acceleration_scaling'), value_type=float),
         }],
     )
     
@@ -142,6 +170,10 @@ def generate_launch_description():
         trash_y_arg,
         trash_z_arg,
         arduino_action_wait_arg,
+        spray_height_offset_arg,
+        use_joint_constraints_arg,
+        max_velocity_scaling_arg,
+        max_acceleration_scaling_arg,
         info_msg,
         orchestrator_node,
     ])

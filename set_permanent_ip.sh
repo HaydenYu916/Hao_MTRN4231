@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# 永久配置有线网卡静态IP (192.168.0.77)
-# 使用方法: sudo ./set_permanent_ip.sh
+# Permanently configure wired interface static IP (192.168.0.77)
+# Usage: sudo ./set_permanent_ip.sh
 
-echo "正在配置永久静态IP..."
+echo "Configuring permanent static IP..."
 
 # 先设置所有参数，最后再设置method（一次性设置避免错误）
 nmcli connection modify 'Wired connection 1' \
@@ -12,7 +12,7 @@ nmcli connection modify 'Wired connection 1' \
     ipv4.dns '8.8.8.8' \
     ipv4.method manual
 
-echo "重新激活连接..."
+echo "Reactivating connection..."
 # 检查连接是否活动
 if nmcli connection show --active | grep -q "Wired connection 1"; then
     nmcli connection down 'Wired connection 1'
@@ -22,15 +22,15 @@ nmcli connection up 'Wired connection 1'
 
 sleep 2
 echo ""
-echo "配置完成！"
-echo "当前IP配置:"
+echo "Configuration complete!"
+echo "Current IP configuration:"
 ip addr show eno1 | grep "inet "
 
 echo ""
-echo "测试连接机器人..."
+echo "Testing connection to robot..."
 if ping -c 2 -W 2 192.168.0.100 >/dev/null 2>&1; then
-    echo "✓ 成功连接到机器人！"
+    echo "✓ Successfully connected to robot!"
 else
-    echo "✗ 无法连接，请检查网络"
+    echo "✗ Unable to reach robot, please check the network"
 fi
 

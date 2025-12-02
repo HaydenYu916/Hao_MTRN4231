@@ -19,10 +19,12 @@ class PlanningSceneBridge : public rclcpp::Node
 public:
     PlanningSceneBridge() : Node("planning_scene_bridge")
     {
-        // 1. Initialize Planning Scene Interface
+        // 1. Initialize Planning Scene Interface (non-blocking constructor)
+        // Note: PlanningSceneInterface constructor is lightweight and doesn't block.
+        // The actual connection to MoveIt services happens on first use.
         RCLCPP_INFO(this->get_logger(), "Initializing MoveIt PlanningSceneInterface...");
-        // The interface is typically ready shortly after the move_group node starts.
-        std::this_thread::sleep_for(1s); 
+        // PlanningSceneInterface is created here (member initialization)
+        RCLCPP_INFO(this->get_logger(), "PlanningSceneInterface object created (will connect on first use).");
 
         // 2. Create a Subscriber
         // The topic name is: 'obsFromImg'
@@ -33,6 +35,7 @@ public:
 
         RCLCPP_INFO(this->get_logger(), "Subscribed to 'obsFromImg' and ready to update the planning scene.");
         RCLCPP_INFO(this->get_logger(), "Operation field keys: 0=ADD, 1=REMOVE");
+        RCLCPP_INFO(this->get_logger(), "Node ready. Waiting for collision objects on '/obsFromImg' topic...");
     }
 
 private:
@@ -78,12 +81,16 @@ private:
         objects_to_apply.push_back(*msg);
         
         // This call is synchronous and waits until MoveIt confirms the scene update.
+        // The first call will establish connection to MoveIt services if not already connected.
         // For a high-rate perception system, you might consider using 
         // applyCollisionObjects(objects_to_apply) and letting the interface batch 
         // the updates if latency is a concern.
-        planning_scene_interface_.applyCollisionObjects(objects_to_apply);
-
-        RCLCPP_DEBUG(this->get_logger(), "Successfully applied scene update for object '%s'.", msg->id.c_str());
+        try {
+            planning_scene_interface_.applyCollisionObjects(objects_to_apply);
+            RCLCPP_DEBUG(this->get_logger(), "Successfully applied scene update for object '%s'.", msg->id.c_str());
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to apply collision object '%s': %s", msg->id.c_str(), e.what());
+        }
     }
 };
 

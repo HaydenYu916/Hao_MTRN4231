@@ -53,25 +53,30 @@ int main(int argc, char* argv[])
 
   // Create collision objects
   auto col_object_table = generateCollisionObject(2.4, 1.2, 0.04, 0.85, 0.25, -0.03, frame_id, "table");
-  auto col_object_backWall = generateCollisionObject(2.4, 0.04, 1.0, 0.85, -0.25, 0.5, frame_id, "backWall");
+  // auto col_object_backWall = generateCollisionObject(2.4, 0.04, 1.0, 0.85, -0.25, 0.5, frame_id, "backWall");
   auto col_object_sideWall = generateCollisionObject(0.04, 1.2, 1.0, -0.25, 0.25, 0.5, frame_id, "sideWall");
   auto col_object_ceiling = generateCollisionObject(2.4, 1.2, 0.04, 0.8, 0.3, 0.9, frame_id, "ceiling");
   // Trash bin: 0.3m x 0.3m x 0.05m, height 0.05m (center at z=0.025m, top at z=0.05m)
   auto col_object_trashBin = generateCollisionObject(0.3, 0.3, 0.05, 0.10, 0.5, 0.025, frame_id, "trashBin");
+  // Additional box object (matches RViz Box_0 example):
+  // size: 0.20m x 0.25m x 0.25m, center position: (0.5, 0.3, 0.1)
+  auto col_object_test0 = generateCollisionObject(0.20, 0.25, 0.25, 0.5, 0.35, 0.05, frame_id, "Test_0");
 
   // Add the collision objects to the scene
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
   planning_scene_interface.applyCollisionObject(col_object_table);
-  planning_scene_interface.applyCollisionObject(col_object_backWall);
+  //planning_scene_interface.applyCollisionObject(col_object_backWall);
   planning_scene_interface.applyCollisionObject(col_object_sideWall);
   planning_scene_interface.applyCollisionObject(col_object_trashBin);
   planning_scene_interface.applyCollisionObject(col_object_ceiling);
+  planning_scene_interface.applyCollisionObject(col_object_test0);
   
   std::cout << "✓ Added the following collision objects:" << std::endl;
   std::cout << "  - table (2.4 x 1.2 x 0.04)" << std::endl;
   std::cout << "  - backWall (2.4 x 0.04 x 1.0)" << std::endl;
   std::cout << "  - sideWall (0.04 x 1.2 x 1.0)" << std::endl;
   std::cout << "  - trashBin (0.3 x 0.3 x 0.05), height=0.05m, center at (0.10, 0.5, 0.025)" << std::endl;
+  std::cout << "  - Box_0 (0.20 x 0.25 x 0.25), center at (0.5, 0.3, 0.1)" << std::endl;
   std::cout << "\nScene setup complete!" << std::endl;
   std::cout << "Collision objects have been added to the scene and will persist." << std::endl;
   

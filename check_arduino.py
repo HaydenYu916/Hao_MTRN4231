@@ -82,7 +82,7 @@ def check_arduino_ports():
         print(f"Error while checking user groups: {e}")
         print()
     
-    # 尝试打开设备
+    # Try to open detected devices
     print("Device access test:")
     print("-" * 60)
     for port_info in found_ports:
