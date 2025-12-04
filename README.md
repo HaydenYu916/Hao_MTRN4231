@@ -7,7 +7,7 @@ The project was developed and tested on **Ubuntu 22.04 + ROS 2 Humble** with a *
 
 > **Demo:**
 
-![Short Obstacle Run](./media/Obstacle%20Small%20Run%20GIF.gif)
+![Short Obstacle Run](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/SpedUp%20GIF%201.gif)
 
 
 
@@ -71,7 +71,7 @@ The diagram below shows the main nodes and their connections. It captures the da
 
 
 **Figure 1 – Node and communication graph for the pesticide sprayer arm**  
-![mtrn 4231 group](https://github.com/user-attachments/assets/773d51d1-f6c6-4f4a-a595-bdcb52bcfb65)
+![mtrn 4231 group](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/system_architecture%3A.jpg)
 
 Key components in the graph:
 
@@ -168,7 +168,7 @@ This modular structure allows each component (perception, manipulation, actuatio
 The high-level behaviour of the system is implemented in the `automation_orchestrator` node as a state-machine-like sequence. Conceptually, the task can be described with the following states:
 
 > **Figure 2 – High-level task state machine Flowchart**
-<img width="4375" height="593" alt="Flowchart" src="https://github.com/user-attachments/assets/dcc5756a-ec42-4966-8029-386634167675" />
+<img width="4375" height="593" alt="Flowchart" src="https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/flow_chart.png" />
 
 **States:**
 
@@ -248,7 +248,7 @@ The vision pipeline allows for automatic leaf detetction, removing the need for 
 ### Photos/renders
 |Component        |STL File                                                                   |
 |-----------------|---------------------------------------------------------------------------|
-|Whole Assembly   |[Whole Assembly STL](CustomEndEffector/STL%20Files/FullAssembly.stl)       |
+|Whole Assembly   |[Whole Assembly STL](./CustomEndEffector/STL%20Files/FullAssembly.stl)       |
 |Closing Mount    |[Closing Mount STL](CustomEndEffector/STL%20Files/ClosingMount.stl)        |
 |Vacuum Pump Mount|[Vacuum Pump Mount STL](CustomEndEffector/STL%20Files/VacuumPumpMount.stl) | 
 |Spray Pump Mount |[Spray Pump Mount STL](CustomEndEffector/STL%20Files/SprayMountBox.stl)    |
