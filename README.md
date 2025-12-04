@@ -248,18 +248,13 @@ The vision pipeline allows for automatic leaf detetction, removing the need for 
 ### Photos/renders
 |Component        |STL File                                                                   |
 |-----------------|---------------------------------------------------------------------------|
-|Whole Assembly   |[Whole Assembly STL](./CustomEndEffector/STL%20Files/FullAssembly.stl)       |
-|Closing Mount    |[Closing Mount STL](CustomEndEffector/STL%20Files/ClosingMount.stl)        |
-|Vacuum Pump Mount|[Vacuum Pump Mount STL](CustomEndEffector/STL%20Files/VacuumPumpMount.stl) | 
-|Spray Pump Mount |[Spray Pump Mount STL](CustomEndEffector/STL%20Files/SprayMountBox.stl)    |
-|Provided Mount   |[Provided Mount STL](CustomEndEffector/STL%20Files/ProvidedMount.stl)      |
-|End Effector     |[End Effector STL](CustomEndEffector/STL%20Files/EndEffectorComponent.stl) |
+|Whole Assembly   |[Whole Assembly STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/FullAssembly.stl)       |
+|Closing Mount    |[Closing Mount STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/ClosingMount.stl)        |
+|Vacuum Pump Mount|[Vacuum Pump Mount STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/VacuumPumpMount.stl) | 
+|Spray Pump Mount |[Spray Pump Mount STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/SprayMountBox.stl)    |
+|Provided Mount   |[Provided Mount STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/ProvidedMount.stl)      |
+|End Effector     |[End Effector STL](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/STL%20Files/EndEffectorComponent.stl) |
 
-
-[
-- provide links STL files
-  
-]
 ### Assembly details
 - Components were 3D modelled in Fusion360 and printed using the Creality Ender V3 3D printer with black PLA filament.
 - All components are push-fit, meaning that no tape/adhesive is used
@@ -271,17 +266,14 @@ The vision pipeline allows for automatic leaf detetction, removing the need for 
 ### Engineering drawings
 |Component         |Drawing                                                                          |
 |------------------|---------------------------------------------------------------------------------|
-|Whole Assembly    |[Whole Assembly](CustomEndEffector/Drawings/FullAssemblyDrawing.pdf)             |
-|Closing Mount     |[Closing Mount](CustomEndEffector/Drawings/ClosingMount.pdf)                     |
-|Vacuum Pump Mount |[Vacuum Pump Mount](CustomEndEffector/Drawings/VacuumPumpMount.pdf)              |
-|Spray Pump Mount  |[Spray Pump Mount](CustomEndEffector/Drawings/SprayMountBox.pdf)                 |
-|Provided Mount    |[Provided Mount](CustomEndEffector/Drawings/ProvidedMount.pdf)                   |
-|End Effector      |[End Effector Mount](CustomEndEffector/Drawings/EndEffectorComponentDrawing.pdf) |
+|Whole Assembly    |[Whole Assembly](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/FullAssemblyDrawing.pdf)             |
+|Closing Mount     |[Closing Mount](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/ClosingMount.pdf)                     |
+|Vacuum Pump Mount |[Vacuum Pump Mount](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/VacuumPumpMount.pdf)              |
+|Spray Pump Mount  |[Spray Pump Mount](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/SprayMountBox.pdf)                 |
+|Provided Mount    |[Provided Mount](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/ProvidedMount.pdf)                   |
+|End Effector      |[End Effector Mount](https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/CustomEndEffector/Drawings/EndEffectorComponentDrawing.pdf) |
 
-[
-- provide links to PDFs
-  
-] 
+
 ### Control overview 
 - the system uses ROS2 and Arduino to coordinate spraying and leaf-picking operations
 - the camera provided detects incoming leaves and classifies them based on .... This classification determines the action sequence
@@ -307,7 +299,7 @@ These markers update in real-time and appear at the 3D positions used by the rob
 The projected arm configuration is displayed as an orange UR5e arm in RViz2. This provides visual confirmation of the robot moving to the correct position.
 
 > **Figure 3 – Rviz2 Visualisation**
-<img width="935" height="445" alt="Screenshot from 2025-12-03 17-04-21" src="https://github.com/user-attachments/assets/f6d96e09-9262-4ef1-a132-aa1c33001677" />
+<img width="935" height="445" alt="Screenshot from 2025-12-03 17-04-21" src="http://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/Rviz2%20Visualisation.png" />
 
 
 ## Closed-Loop Operation
