@@ -1,0 +1,9 @@
+# Python dependencies for the MTRN4231 leaf detection and automation workspace
+# These are intended to be installed via pip, in addition to ROS2/apt-based packages.
+
+numpy
+opencv-python
+plantcv
+pyrealsense2
+
+

@@ -60,12 +60,19 @@ ament_target_dependencies(move_arm_to_pose
   moveit_visual_tools
 )
 
+add_executable(dynamic_obstacle_control src/dynamic_obstacle_control.cpp)
+ament_target_dependencies(dynamic_obstacle_control
+  rclcpp
+  moveit_ros_planning_interface
+  moveit_msgs
+)
+
 # --- install ---
 install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
   FILES_MATCHING PATTERN "*.yaml"
 )
-install(TARGETS moveit_scene_home_ur add_collision_objects move_arm_to_pose
+install(TARGETS moveit_scene_home_ur add_collision_objects move_arm_to_pose dynamic_obstacle_control
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
