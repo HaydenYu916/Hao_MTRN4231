@@ -179,9 +179,24 @@ int main(int argc, char* argv[])
   // auto path_constraints = makeFacingDownConstraint(move_group_interface);
   // move_group_interface.setPathConstraints(path_constraints);
 
-  // (Make sure target pose orientation matches “down”; you already use 0,1,0,0)
+  // (Make sure target pose orientation matches "down"; you already use 0,1,0,0)
   auto target_pose = generatePoseMsg(target_x, target_y, target_z, 0.0, 1.0, 0.0, 0.0);
   move_group_interface.setPoseTarget(target_pose);
+  
+  // Set goal tolerances to help with "Insufficient states in sampleable goal region" errors
+  // This gives the planner more sampling space in the goal region
+  const double goal_position_tolerance = 0.01;      // 1cm position tolerance
+  const double goal_orientation_tolerance = 0.1;    // ~11° orientation tolerance
+  const double goal_tolerance = 0.01;               // 1cm overall tolerance
+  
+  move_group_interface.setGoalPositionTolerance(goal_position_tolerance);
+  move_group_interface.setGoalOrientationTolerance(goal_orientation_tolerance);
+  move_group_interface.setGoalTolerance(goal_tolerance);
+  
+  std::cout << "\nGoal Tolerance Settings:" << std::endl;
+  std::cout << "  Position tolerance: " << goal_position_tolerance << " m" << std::endl;
+  std::cout << "  Orientation tolerance: " << goal_orientation_tolerance << " rad" << std::endl;
+  std::cout << "  Overall tolerance: " << goal_tolerance << " m" << std::endl;
 
   // Plan
   moveit::planning_interface::MoveGroupInterface::Plan planMessage;

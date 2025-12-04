@@ -11,7 +11,7 @@ from plantcv import plantcv as pcv
 from cv_bridge import CvBridge
 from datetime import datetime
 import json
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from sensor_msgs.msg import Image
 
 
@@ -47,6 +47,11 @@ class DetectionHandler:
         self.blue_box_position_threshold = node.declare_parameter('blue_box_position_threshold', 0.01).value  # 1cm position change threshold
         self.blue_box_refresh_interval = node.declare_parameter('blue_box_refresh_interval', 10).value  # Force refresh every N frames
         
+        # Blue box coordinate snapshot for automation task (like leaf coordinates)
+        self.automation_running = False  # Track if automation task is running
+        self.blue_box_snapshot = None  # Snapshot of blue box coordinates when automation starts
+        self.blue_box_snapshot_lock = threading.Lock()  # Thread-safe access to snapshot
+        
         # Detection mode: continuous or on-demand
         self.continuous_detection = node.declare_parameter('continuous_detection', True).value
         self.min_area_default = 2000.0  # Default min area
@@ -67,7 +72,7 @@ class DetectionHandler:
         self.blue_min_area = node.declare_parameter('blue_min_area', 3000.0).value
         # Blue in HSV: H value 100-130 (blue range), high S and V values
         # Using adjusted parameters: S Lower=147 to reduce false positives
-        self.blue_hsv_lower = node.declare_parameter('blue_hsv_lower', [100, 147, 50]).value
+        self.blue_hsv_lower = node.declare_parameter('blue_hsv_lower', [103, 147, 50]).value
         self.blue_hsv_upper = node.declare_parameter('blue_hsv_upper', [130, 255, 255]).value
         
         # Blue box MoveIt collision object parameters
@@ -115,6 +120,14 @@ class DetectionHandler:
             10
         )
         
+        # Subscriber for automation task running status
+        self.automation_running_sub = node.create_subscription(
+            Bool,
+            '/automation_task/running',
+            self._automation_running_callback,
+            10
+        )
+        
         self.get_logger().info('✓ DetectionHandler initialized')
         if self.continuous_detection:
             self.get_logger().info('📡 Continuous detection mode: images will be published continuously')
@@ -144,6 +157,30 @@ class DetectionHandler:
     def get_logger(self):
         """Get node logger"""
         return self.node.get_logger()
+    
+    def _automation_running_callback(self, msg):
+        """Callback for automation task running status"""
+        with self.blue_box_snapshot_lock:
+            if msg.data and not self.automation_running:
+                # Automation task just started: save blue box snapshot
+                self.automation_running = True
+                # Get current blue boxes from latest detection
+                if self.latest_leaf_data and self.latest_leaf_data.get('blue_boxes'):
+                    self.blue_box_snapshot = self.latest_leaf_data.get('blue_boxes').copy()
+                    self.get_logger().info(
+                        f'📦 Automation task started: saved blue box snapshot ({len(self.blue_box_snapshot)} boxes), '
+                        f'coordinates will be fixed during automation'
+                    )
+                else:
+                    self.blue_box_snapshot = []
+                    self.get_logger().info(
+                        '📦 Automation task started: no blue boxes detected, snapshot is empty'
+                    )
+            elif not msg.data and self.automation_running:
+                # Automation task ended: clear snapshot
+                self.automation_running = False
+                self.blue_box_snapshot = None
+                self.get_logger().info('📦 Automation task ended: blue box coordinates will update normally')
     
     def update_frames(self, color_msg, depth_msg):
         """Update current frame and depth from synchronized messages, and perform continuous detection"""
@@ -234,8 +271,20 @@ class DetectionHandler:
                             'z': point_msg.z
                         })
                 
+                # Use snapshot if automation is running, otherwise use current detection
+                with self.blue_box_snapshot_lock:
+                    if self.automation_running and self.blue_box_snapshot is not None:
+                        # Use fixed snapshot during automation task
+                        blue_boxes = self.blue_box_snapshot
+                        self.get_logger().debug(
+                            f'Using fixed blue box snapshot ({len(blue_boxes)} boxes) during automation task'
+                        )
+                    else:
+                        # Use current detection results
+                        blue_boxes = leaf_data.get('blue_boxes', [])
+                
                 # Clean blue boxes for JSON serialization (remove numpy arrays)
-                blue_boxes_clean = self._clean_blue_boxes_for_json(leaf_data.get('blue_boxes', []))
+                blue_boxes_clean = self._clean_blue_boxes_for_json(blue_boxes)
                 
                 results_json = {
                     'num_leaves': leaf_data['num_leaves'],
@@ -249,7 +298,6 @@ class DetectionHandler:
                 self.detection_results_pub.publish(results_msg)
                 
                 # Publish blue box results separately
-                blue_boxes = leaf_data.get('blue_boxes', [])
                 if len(blue_boxes) > 0:
                     blue_box_json = {
                         'num_blue_boxes': len(blue_boxes),
@@ -1651,4 +1699,6 @@ class DetectionHandler:
         except Exception as e:
             self.get_logger().error(f'✗ Annotation drawing error: {str(e)}')
             return display_frame.copy()
+
+
 

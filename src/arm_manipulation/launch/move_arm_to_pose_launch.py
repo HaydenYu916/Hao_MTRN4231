@@ -43,7 +43,7 @@ def generate_launch_description():
     planning_time_arg = DeclareLaunchArgument(
         'planning_time',
         default_value='60.0',
-        description='Maximum planning time in seconds (default: 60.0 = 1 minute)'
+        description='Maximum planning time in seconds (default: 60.0 seconds)'
     )
     num_planning_attempts_arg = DeclareLaunchArgument(
         'num_planning_attempts',

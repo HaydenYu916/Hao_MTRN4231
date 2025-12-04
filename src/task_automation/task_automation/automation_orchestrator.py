@@ -13,6 +13,7 @@ from rclpy.node import Node
 from arm_msgs.srv import LeafDetectionSrv
 from arduino_communication.srv import LeafCommand
 from geometry_msgs.msg import Point
+from std_msgs.msg import Bool
 import subprocess
 import time
 import sys
@@ -45,6 +46,9 @@ class AutomationOrchestrator(Node):
         
         # Initialize Arduino communication service client
         self.arduino_client = self.create_client(LeafCommand, 'send_command')
+        
+        # Publisher to notify detection handler that automation task is running
+        self.automation_running_pub = self.create_publisher(Bool, '/automation_task/running', 10)
         
         # Load configuration parameters
         self._load_parameters()
@@ -92,14 +96,15 @@ class AutomationOrchestrator(Node):
         
         # Task flow parameters
         self.declare_parameter('wait_between_leaves', 2.0)    # Wait time between processing leaves (seconds)
-        # Increase default movement timeout to be larger than MoveIt planning_time (60s) plus execution margin
-        self.declare_parameter('arm_movement_timeout', 120.0)  # Robot arm movement timeout (seconds)
-        self.declare_parameter('detection_timeout', 10.0)    # Detection service timeout (seconds)
+        self.declare_parameter('arm_movement_timeout', 60.0)  # Robot arm movement timeout (seconds)
+        self.declare_parameter('detection_timeout', 60.0)     # Detection service timeout (seconds)
         self.declare_parameter('arduino_action_wait', 3.0)    # Wait time after Arduino action (seconds)
         self.declare_parameter('spray_height_offset', 0.05)   # Additional height offset for spray operation (meters)
         self.declare_parameter('use_joint_constraints', True) # Enable joint path constraints for arm movement
         self.declare_parameter('max_velocity_scaling', 0.15)  # Maximum velocity scaling factor (0.0-1.0, default: 0.15 = 15%)
         self.declare_parameter('max_acceleration_scaling', 0.15)  # Maximum acceleration scaling factor (0.0-1.0, default: 0.15 = 15%)
+        self.declare_parameter('unhealthy_z_threshold', 0.20)  # Z coordinate threshold for unhealthy leaves
+        self.declare_parameter('unhealthy_z_min', 0.15)  # Minimum Z coordinate for unhealthy leaves when Z < threshold
         
         # Store parameter values
         self.min_area = self.get_parameter('min_area').value
@@ -123,6 +128,8 @@ class AutomationOrchestrator(Node):
         self.use_joint_constraints = self.get_parameter('use_joint_constraints').value
         self.max_velocity_scaling = self.get_parameter('max_velocity_scaling').value
         self.max_acceleration_scaling = self.get_parameter('max_acceleration_scaling').value
+        self.unhealthy_z_threshold = self.get_parameter('unhealthy_z_threshold').value
+        self.unhealthy_z_min = self.get_parameter('unhealthy_z_min').value
     
     def _initialize_home_from_current_pose(self):
         """
@@ -146,6 +153,7 @@ class AutomationOrchestrator(Node):
         self.get_logger().info(f"Spray height offset: {self.spray_height_offset:.3f}m")
         self.get_logger().info(f"Joint constraints: {'ENABLED' if self.use_joint_constraints else 'DISABLED'}")
         self.get_logger().info(f"Speed limits: velocity={self.max_velocity_scaling*100:.0f}%, acceleration={self.max_acceleration_scaling*100:.0f}%")
+        self.get_logger().info(f"Unhealthy leaf Z adjustment: threshold={self.unhealthy_z_threshold:.3f}m, min={self.unhealthy_z_min:.3f}m")
         self.get_logger().info("=" * 80)
     
     def wait_for_service(self, timeout_sec=30.0):
@@ -392,19 +400,30 @@ class AutomationOrchestrator(Node):
     
     def move_arm_to_home(self):
         """
-
-        Move robot arm to home position using joint angles
+        Move robot arm to home position using MoveIt planning (same pipeline as leaf/trash moves).
         
         Returns:
             bool: Whether movement was successful
         """
-        # 使用 MoveIt (move_arm_to_pose) 规划回 home，带完整碰撞检测
         self.get_logger().info(
-            f"Returning to home position via MoveIt: "
-            f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
+            f"Returning to home position using MoveIt planning at "
+            f"({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})..."
         )
-        # home 位置不做 bias，直接用绝对坐标
-        return self.move_arm_to_pose(self.home_x, self.home_y, self.home_z, apply_bias=False)
+        
+        # For home, do NOT apply bias; use the configured Cartesian position directly.
+        success = self.move_arm_to_pose(
+            self.home_x,
+            self.home_y,
+            self.home_z,
+            apply_bias=False,
+        )
+        
+        if success:
+            self.get_logger().info("✓ Robot arm returned to home position (MoveIt)")
+        else:
+            self.get_logger().error("❌ Return to home via MoveIt planning failed")
+        
+        return success
     
     def send_arduino_command(self, command):
         """
@@ -471,20 +490,48 @@ class AutomationOrchestrator(Node):
             self.get_logger().info(f"Leaf {leaf_index} is unhealthy, starting vacuum pickup...")
             
             # Step 1: Move to spray height first (above the leaf)
+            # 使用原始识别 Z 做喷雾高度，始终应用 bias，这样 XY 与第二步一致
             spray_height = leaf_point.z + self.spray_height_offset
             self.get_logger().info(
                 f"Step 1: Moving to spray height above leaf: Z={spray_height:.3f}m "
-                f"(target Z={leaf_point.z:.3f}m + offset={self.spray_height_offset:.3f}m)"
+                f"(detected Z={leaf_point.z:.3f}m + offset={self.spray_height_offset:.3f}m, "
+                f"XY with bias)"
             )
-            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, spray_height):
+            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, spray_height, apply_bias=True):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} movement to spray height failed")
                 return False
             
             # Step 2: Move vertically down to leaf target Z
+            # 只改变目标 Z，不改变 apply_bias，保证两步的 XY 完全一致（都带 bias）
+            original_z = leaf_point.z
+            
+            # target_z_effective: 末端执行器期望到达的“物理”Z（不包含 bias_z）
+            # target_z_command: 传给 move_arm_to_pose 的 Z（内部仍会加 bias_z）
+            if original_z >= self.unhealthy_z_threshold:
+                # 高于阈值：沿用原始 Z（正常带 Z bias）
+                target_z_effective = original_z
+                target_z_command = original_z
+                self.get_logger().info(
+                    f"Step 2: Detected Z {original_z:.3f}m >= threshold {self.unhealthy_z_threshold:.3f}m, "
+                    f"using original Z with bias (command_z={target_z_command:.3f}m, bias_z={self.bias_z:.3f}m)"
+                )
+            else:
+                # 低于阈值：希望最终物理 Z = unhealthy_z_min，且“不加 bias”
+                # 由于 move_arm_to_pose 内部会对 Z 加上 bias_z，这里先减去 bias_z 再传入，
+                # 这样加回去后有效 Z 仍然是 unhealthy_z_min
+                target_z_effective = self.unhealthy_z_min
+                target_z_command = self.unhealthy_z_min - self.bias_z
+                self.get_logger().info(
+                    f"Step 2: Detected Z {original_z:.3f}m < threshold {self.unhealthy_z_threshold:.3f}m, "
+                    f"using unhealthy_z_min without extra Z bias: effective_Z={target_z_effective:.3f}m "
+                    f"(command_z={target_z_command:.3f}m, bias_z={self.bias_z:.3f}m)"
+                )
+            
             self.get_logger().info(
-                f"Step 2: Moving vertically down to leaf target Z: {leaf_point.z:.3f}m"
+                f"Moving vertically down to leaf target Z (effective): {target_z_effective:.3f}m "
+                f"with XY bias applied"
             )
-            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, leaf_point.z):
+            if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, target_z_command, apply_bias=True):
                 self.get_logger().warn(f"⚠ Leaf {leaf_index} vertical movement to target Z failed")
                 return False
             
@@ -557,6 +604,12 @@ class AutomationOrchestrator(Node):
         self.get_logger().info("Starting automation task loop")
         self.get_logger().info("=" * 80)
         
+        # Notify detection handler that automation task has started (fix blue box positions)
+        msg = Bool()
+        msg.data = True
+        self.automation_running_pub.publish(msg)
+        self.get_logger().info("Notified detection handler: automation task started, blue box positions will be fixed")
+        
         # Step 1: Detect leaves
         response = self.detect_leaves()
         
@@ -622,6 +675,12 @@ class AutomationOrchestrator(Node):
             self.get_logger().error("Please check actual arm position in RViz")
             self.get_logger().error("Manual arm movement or path re-planning may be needed")
             self.get_logger().error("!" * 80 + "\n")
+        
+        # Notify detection handler that automation task has ended (blue box positions can update normally)
+        msg = Bool()
+        msg.data = False
+        self.automation_running_pub.publish(msg)
+        self.get_logger().info("Notified detection handler: automation task ended, blue box positions will update normally")
         
         # Final summary
         self.get_logger().info("\n" + "=" * 80)

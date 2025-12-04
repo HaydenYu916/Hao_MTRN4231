@@ -20,9 +20,11 @@ move_group:
         # === Recommended planners for orientation constraints ===
         
         # PRMstar - Probabilistic roadmap, very constraint-friendly
+        # Improved configuration to handle goal region sampling better
+        # Note: PRMstar requires sufficient states in goal region - ensure goal tolerances are set in code
         PRMstarkConfigDefault:
           type: geometric::PRMstar
-          max_nearest_neighbors: 10
+          max_nearest_neighbors: 20  # Increased from 10 to improve roadmap connectivity
           
         # BITstar - Batch informed tree search, great for finding optimal paths
         BITstarkConfigDefault:

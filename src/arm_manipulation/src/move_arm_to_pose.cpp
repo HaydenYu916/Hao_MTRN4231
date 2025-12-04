@@ -226,9 +226,9 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
   // Set goal tolerances to give planner more sampling space in goal region
   // This is important for solving "Insufficient states in sampleable goal region" errors
   // Increasing tolerance makes it easier for planner to find configurations satisfying the goal
-  const double goal_position_tolerance = 0.01;      // 2cm
+  const double goal_position_tolerance = 0.005;      // 2cm
   const double goal_orientation_tolerance = 0.1;    // ~11°
-  const double goal_tolerance = 0.01;               // 2cm overall
+  const double goal_tolerance = 0.005;               // 2cm overall
 
   move_group.setGoalPositionTolerance(goal_position_tolerance);
   move_group.setGoalOrientationTolerance(goal_orientation_tolerance);

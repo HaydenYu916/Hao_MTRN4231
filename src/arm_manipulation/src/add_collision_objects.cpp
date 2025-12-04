@@ -60,7 +60,7 @@ int main(int argc, char* argv[])
   auto col_object_trashBin = generateCollisionObject(0.3, 0.3, 0.05, 0.10, 0.5, 0.025, frame_id, "trashBin");
   // Additional box object (matches RViz Box_0 example):
   // size: 0.20m x 0.25m x 0.25m, center position: (0.5, 0.3, 0.1)
-  auto col_object_test0 = generateCollisionObject(0.20, 0.25, 0.25, 0.5, 0.35, 0.05, frame_id, "Test_0");
+  // auto col_object_test0 = generateCollisionObject(0.20, 0.25, 0.25, 0.5, 0.35, 0.05, frame_id, "Test_0");
 
   // Add the collision objects to the scene
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
   planning_scene_interface.applyCollisionObject(col_object_sideWall);
   planning_scene_interface.applyCollisionObject(col_object_trashBin);
   planning_scene_interface.applyCollisionObject(col_object_ceiling);
-  planning_scene_interface.applyCollisionObject(col_object_test0);
+  // planning_scene_interface.applyCollisionObject(col_object_test0);
   
   std::cout << "✓ Added the following collision objects:" << std::endl;
   std::cout << "  - table (2.4 x 1.2 x 0.04)" << std::endl;

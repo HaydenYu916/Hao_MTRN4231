@@ -28,13 +28,13 @@ def generate_launch_description():
     
     bias_x_arg = DeclareLaunchArgument(
         'bias_x',
-        default_value='0.0',
+        default_value='0.035',
         description='X-axis coordinate bias (meters)'
     )
     
     bias_y_arg = DeclareLaunchArgument(
         'bias_y',
-        default_value='0.0',
+        default_value='-0.05',
         description='Y-axis coordinate bias (meters)'
     )
     
@@ -46,13 +46,13 @@ def generate_launch_description():
     
     z_min_arg = DeclareLaunchArgument(
         'z_min',
-        default_value='0.015',
+        default_value='0.040',
         description='Z coordinate minimum constraint (meters)'
     )
     
     z_max_arg = DeclareLaunchArgument(
         'z_max',
-        default_value='1.80',
+        default_value='1.0',
         description='Z coordinate maximum constraint (meters)'
     )
     
@@ -70,7 +70,7 @@ def generate_launch_description():
     
     home_z_arg = DeclareLaunchArgument(
         'home_z',
-        default_value='0.65',
+        default_value='0.30',
         description='Home position Z coordinate (meters)'
     )
     
@@ -88,7 +88,7 @@ def generate_launch_description():
     
     trash_z_arg = DeclareLaunchArgument(
         'trash_z',
-        default_value='0.25',
+        default_value='0.20',
         description='Trash bin discard position Z coordinate (meters)'
     )
     
@@ -112,14 +112,26 @@ def generate_launch_description():
     
     max_velocity_scaling_arg = DeclareLaunchArgument(
         'max_velocity_scaling',
-        default_value='0.15',
+        default_value='0.10',
         description='Maximum velocity scaling factor (0.0-1.0, default: 0.15 = 15% max speed)'
     )
     
     max_acceleration_scaling_arg = DeclareLaunchArgument(
         'max_acceleration_scaling',
-        default_value='0.15',
+        default_value='0.10',
         description='Maximum acceleration scaling factor (0.0-1.0, default: 0.15 = 15% max acceleration)'
+    )
+    
+    unhealthy_z_threshold_arg = DeclareLaunchArgument(
+        'unhealthy_z_threshold',
+        default_value='0.10',
+        description='Z coordinate threshold for unhealthy leaves (meters). If Z >= threshold, use original value; if Z < threshold, use unhealthy_z_min'
+    )
+    
+    unhealthy_z_min_arg = DeclareLaunchArgument(
+        'unhealthy_z_min',
+        default_value='0.04',
+        description='Minimum Z coordinate for unhealthy leaves when Z < threshold (meters)'
     )
     
     # Create automation orchestrator node
@@ -147,6 +159,8 @@ def generate_launch_description():
             'use_joint_constraints': ParameterValue(LaunchConfiguration('use_joint_constraints'), value_type=bool),
             'max_velocity_scaling': ParameterValue(LaunchConfiguration('max_velocity_scaling'), value_type=float),
             'max_acceleration_scaling': ParameterValue(LaunchConfiguration('max_acceleration_scaling'), value_type=float),
+            'unhealthy_z_threshold': ParameterValue(LaunchConfiguration('unhealthy_z_threshold'), value_type=float),
+            'unhealthy_z_min': ParameterValue(LaunchConfiguration('unhealthy_z_min'), value_type=float),
         }],
     )
     
@@ -174,6 +188,8 @@ def generate_launch_description():
         use_joint_constraints_arg,
         max_velocity_scaling_arg,
         max_acceleration_scaling_arg,
+        unhealthy_z_threshold_arg,
+        unhealthy_z_min_arg,
         info_msg,
         orchestrator_node,
     ])
