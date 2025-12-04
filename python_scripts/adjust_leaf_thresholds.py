@@ -77,11 +77,11 @@ class LeafThresholdAdjuster:
             devices = ctx.query_devices()
             
             if len(devices) == 0:
-                print('✗ No RealSense devices found')
+                print(' No RealSense devices found')
                 print('  Please ensure the camera is connected via USB')
                 return False
             
-            print(f'✓ Found {len(devices)} RealSense device(s)')
+            print(f' Found {len(devices)} RealSense device(s)')
             
             # Create new pipeline
             self.pipeline = rs.pipeline()
@@ -97,12 +97,12 @@ class LeafThresholdAdjuster:
             print('  Starting camera streams...')
             profile = self.pipeline.start(config)
             
-            print('✓ Camera initialized successfully')
+            print(' Camera initialized successfully')
             return True
             
         except RuntimeError as e:
             error_msg = str(e)
-            print(f'✗ Camera initialization failed: {e}')
+            print(f' Camera initialization failed: {e}')
             if 'busy' in error_msg.lower() or 'errno=16' in error_msg:
                 print('\n  Possible causes:')
                 print('    1. Another program is using the camera (e.g., ROS2 realsense2_camera node)')
@@ -114,7 +114,7 @@ class LeafThresholdAdjuster:
                 print('    4. Wait a few seconds and try again')
             return False
         except Exception as e:
-            print(f'✗ Camera initialization failed: {e}')
+            print(f' Camera initialization failed: {e}')
             print('  Please ensure RealSense camera is connected and not in use by another program')
             return False
     
@@ -135,7 +135,7 @@ class LeafThresholdAdjuster:
             
             return color_image, depth_image
         except Exception as e:
-            print(f'✗ Failed to get frames: {e}')
+            print(f' Failed to get frames: {e}')
             return None, None
     
     def detect_leaves(self, color_image):
@@ -480,7 +480,7 @@ class LeafThresholdAdjuster:
         # Check for other processes using camera
         in_use, pids = self.check_camera_usage()
         if in_use:
-            print(f'\n⚠️  Warning: Found other processes using camera (PIDs: {", ".join(pids)})')
+            print(f'\n  Warning: Found other processes using camera (PIDs: {", ".join(pids)})')
             print('  Attempting to continue anyway...')
             print('  If camera initialization fails, try: pkill -f realsense2_camera\n')
         
@@ -535,7 +535,7 @@ class LeafThresholdAdjuster:
         except KeyboardInterrupt:
             print('\nUser interrupt (Ctrl+C)')
         except Exception as e:
-            print(f'\n✗ Runtime error: {e}')
+            print(f'\n Runtime error: {e}')
             import traceback
             traceback.print_exc()
         finally:
@@ -543,7 +543,7 @@ class LeafThresholdAdjuster:
             cv2.destroyAllWindows()
             if self.pipeline:
                 self.pipeline.stop()
-            print('\n✓ Program exited')
+            print('\n Program exited')
             # Print parameters one last time
             self.print_current_params()
     
@@ -569,7 +569,7 @@ class LeafThresholdAdjuster:
                 f.write(f"yellow_ratio_threshold = {yellow_ratio_threshold:.4f}\n")
             f.write(f"min_area = {self.min_area}\n")
         
-        print(f'\n✓ Parameters saved to: {filename}')
+        print(f'\n Parameters saved to: {filename}')
 
 
 def main():

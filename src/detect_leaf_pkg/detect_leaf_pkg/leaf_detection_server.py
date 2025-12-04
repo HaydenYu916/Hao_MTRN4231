@@ -47,8 +47,8 @@ class LeafDetectionServer(Node):
             callback_group=self.service_group
         )
         
-        self.get_logger().info('🌿 Leaf Detection Server ready')
-        self.get_logger().info('📡 Service /leaf_detection_srv available')
+        self.get_logger().info(' Leaf Detection Server ready')
+        self.get_logger().info('Service /leaf_detection_srv available')
     
     def setup_subscribers(self):
         """Configure image subscribers and synchronizer"""
@@ -101,7 +101,7 @@ class LeafDetectionServer(Node):
             return response
             
         except Exception as e:
-            self.get_logger().error(f'✗ Service request error: {str(e)}')
+            self.get_logger().error(f' Service request error: {str(e)}')
             response.success = False
             response.message = f"Service error: {str(e)}"
             response.coordinates = []

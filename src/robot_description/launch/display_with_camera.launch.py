@@ -2,7 +2,7 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    # ⚠️ These are verified calibration parameters, ensure you understand them before modifying
+    #  These are verified calibration parameters, ensure you understand them before modifying
     # Position (meters)
     # x, y, z = '1.30317', '0.0174152', '0.675776' G2
     # x, y, z = '1.27354', '0.0326318', '0.68138' # G6

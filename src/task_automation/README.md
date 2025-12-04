@@ -2,14 +2,14 @@
 
 Automated task management package integrating leaf detection and robot arm control for complete automated workflow.
 
-## 📋 Feature Overview
+##  Feature Overview
 
 This package provides an automation orchestrator that can:
 1. **Call leaf detection service** - Detect leaves in images and obtain coordinates
 2. **Move robot arm** - Automatically move robot arm to each position based on detected leaf coordinates
 3. **Sequential processing** - Automatically process multiple detected leaves one by one
 
-## 🏗️ Package Structure
+##  Package Structure
 
 ```
 task_automation/
@@ -26,7 +26,7 @@ task_automation/
 └── README.md
 ```
 
-## 🚀 Usage
+##  Usage
 
 ### Method 1: Use automation task script (Recommended)
 
@@ -99,7 +99,7 @@ ros2 run task_automation automation_orchestrator --ros-args \
     -p home_z:=0.55
 ```
 
-## 🔄 Workflow
+##  Workflow
 
 The automation orchestrator executes the following steps:
 
@@ -114,14 +114,14 @@ The automation orchestrator executes the following steps:
 5. **Return to home** - After all leaves are processed, robot arm automatically returns to home position
 6. **Task summary** - Display number of successfully processed leaves
 
-## 🗑️ Trash Bin Visualization
+##  Trash Bin Visualization
 
 Trash bin is added to MoveIt scene as a collision object:
 - **Position**: x=0.10m, y=0.50m, z=0.25m (center height)
 - **Size**: 0.3m × 0.3m × 0.4m
 - **Visible in RViz**: After starting the system, trash bin will be displayed as orange collision box in the scene
 
-## 🔍 Dependencies
+##  Dependencies
 
 This package depends on the following ROS2 packages and services:
 
@@ -135,11 +135,11 @@ This package depends on the following ROS2 packages and services:
 - `arm_manipulation` - Provides `move_arm_to_pose` node
 - MoveIt configuration and robot driver
 
-## 📝 Example Output
+##  Example Output
 
 ```
 ================================================
-🌿 Leaf Detection Results
+ Leaf Detection Results
 ================================================
 Status: Detection successful
 Leaves detected: 3
@@ -150,8 +150,8 @@ Leaves detected: 3
 
 Processing leaf 1/3...
 Moving robot arm to position: x=0.250m, y=0.100m, z=0.600m
-✓ Robot arm movement successful
-✓ Leaf 1 processed successfully
+ Robot arm movement successful
+ Leaf 1 processed successfully
 Waiting 2s before processing next leaf...
 
 Processing leaf 2/3...
@@ -163,7 +163,7 @@ Successfully processed: 3/3 leaves
 ================================================
 ```
 
-## ⚠️ Notes
+##  Notes
 
 1. **System must be started first** - Before using automation tasks, ensure all required system components are running:
    - Robot driver
@@ -179,7 +179,7 @@ Successfully processed: 3/3 leaves
 
 4. **Error handling** - If processing of a leaf fails, the task will continue with the next leaf.
 
-## 🔧 Development and Debugging
+##  Development and Debugging
 
 ### Rebuild package
 
@@ -214,16 +214,16 @@ ros2 service list
 ros2 service info /leaf_detection_srv
 ```
 
-## 📚 Related Documentation
+##  Related Documentation
 
 - [detect_leaf_pkg](../detect_leaf_pkg/USAGE_SERVER.md) - Leaf detection service documentation
 - [arm_manipulation](../arm_manipulation/) - Robot arm control package
 - [start_all.sh](../../default_scripts/start_all.sh) - Complete system startup script
 
-## 📝 License
+##  License
 
 MIT License
 
-## 👥 Maintainer
+##  Maintainer
 
 hao

@@ -299,7 +299,7 @@ These markers update in real-time and appear at the 3D positions used by the rob
 The projected arm configuration is displayed as an orange UR5e arm in RViz2. This provides visual confirmation of the robot moving to the correct position.
 
 > **Figure 3 – Rviz2 Visualisation**
-<img width="935" height="445" src="https://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/rviz2_visualisation.png" />
+<img width="935" height="445" alt="Screenshot from 2025-12-03 17-04-21" src="http://github.com/HaydenYu916/Hao_MTRN4231/blob/main/assest/Rviz2%20Visualisation.png" />
 
 
 ## Closed-Loop Operation

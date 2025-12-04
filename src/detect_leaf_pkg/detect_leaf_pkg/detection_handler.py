@@ -128,20 +128,20 @@ class DetectionHandler:
             10
         )
         
-        self.get_logger().info('✓ DetectionHandler initialized')
+        self.get_logger().info(' DetectionHandler initialized')
         if self.continuous_detection:
-            self.get_logger().info('📡 Continuous detection mode: images will be published continuously')
+            self.get_logger().info('Continuous detection mode: images will be published continuously')
         self.get_logger().info(
-            f'🍃 Green leaf detection HSV range: {self.green_hsv_lower} - {self.green_hsv_upper}'
+            f'Green leaf detection HSV range: {self.green_hsv_lower} - {self.green_hsv_upper}'
         )
         if self.detect_yellow_tape:
             self.get_logger().info(
-                f'🎯 Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.3f}, '
+                f'Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.3f}, '
                 f'HSV range: {self.yellow_hsv_lower} - {self.yellow_hsv_upper})'
             )
         if self.detect_blue_box:
             self.get_logger().info(
-                f'📦 Blue box detection enabled (min_area={self.blue_min_area}, '
+                f'Blue box detection enabled (min_area={self.blue_min_area}, '
                 f'HSV range: {self.blue_hsv_lower} - {self.blue_hsv_upper})'
             )
             if self.publish_blue_box_to_moveit:
@@ -168,19 +168,19 @@ class DetectionHandler:
                 if self.latest_leaf_data and self.latest_leaf_data.get('blue_boxes'):
                     self.blue_box_snapshot = self.latest_leaf_data.get('blue_boxes').copy()
                     self.get_logger().info(
-                        f'📦 Automation task started: saved blue box snapshot ({len(self.blue_box_snapshot)} boxes), '
+                        f'Automation task started: saved blue box snapshot ({len(self.blue_box_snapshot)} boxes), '
                         f'coordinates will be fixed during automation'
                     )
                 else:
                     self.blue_box_snapshot = []
                     self.get_logger().info(
-                        '📦 Automation task started: no blue boxes detected, snapshot is empty'
+                        'Automation task started: no blue boxes detected, snapshot is empty'
                     )
             elif not msg.data and self.automation_running:
                 # Automation task ended: clear snapshot
                 self.automation_running = False
                 self.blue_box_snapshot = None
-                self.get_logger().info('📦 Automation task ended: blue box coordinates will update normally')
+                self.get_logger().info('Automation task ended: blue box coordinates will update normally')
     
     def update_frames(self, color_msg, depth_msg):
         """Update current frame and depth from synchronized messages, and perform continuous detection"""
@@ -192,7 +192,7 @@ class DetectionHandler:
             if self.continuous_detection:
                 self._perform_continuous_detection(color_msg.header)
         except Exception as e:
-            self.get_logger().error(f'✗ Image conversion failed: {str(e)}')
+            self.get_logger().error(f' Image conversion failed: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
     
@@ -242,7 +242,7 @@ class DetectionHandler:
                     
                     # Log base frame coordinates periodically
                     if self._frame_count % 30 == 0 and self.latest_coordinates_base:
-                        self.get_logger().info('📍 Latest base coordinates:')
+                        self.get_logger().info(' Latest base coordinates:')
                         for i, point in enumerate(self.latest_coordinates_base):
                             self.get_logger().info(f'  Leaf {i+1}: X={point.x:.3f}m, Y={point.y:.3f}m, Z={point.z:.3f}m')
                 else:
@@ -337,12 +337,12 @@ class DetectionHandler:
                     annotated_msg.header = header
                     self.annotated_image_pub.publish(annotated_msg)
                 except Exception as e:
-                    self.get_logger().error(f'✗ Error publishing annotated image: {str(e)}')
+                    self.get_logger().error(f' Error publishing annotated image: {str(e)}')
                     import traceback
                     self.get_logger().error(traceback.format_exc())
                     
         except Exception as e:
-            self.get_logger().error(f'✗ Continuous detection error: {str(e)}')
+            self.get_logger().error(f' Continuous detection error: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
             # Still publish original image even if detection fails
@@ -1174,7 +1174,7 @@ class DetectionHandler:
                 
                 # Debug info
                 if len(blue_box_coordinates) > 0:
-                    self.get_logger().info(f'📦 Detected {len(blue_box_coordinates)} blue boxes')
+                    self.get_logger().info(f'Detected {len(blue_box_coordinates)} blue boxes')
             
             thresh_yellow_full = None
             if self.detect_yellow_tape:
@@ -1499,7 +1499,7 @@ class DetectionHandler:
                             output_lines.append(f"Box{i+1}: ({point_3d[0]:.2f}, {point_3d[1]:.2f}, {point_3d[2]:.2f})")
             
             if output_lines:
-                self.get_logger().info("📊 [base] " + " | ".join(output_lines))
+                self.get_logger().info("[base] " + " | ".join(output_lines))
             
             result = f"Detected {num_detected_leaves} leaves"
             if len(blue_box_coordinates) > 0:
@@ -1516,7 +1516,7 @@ class DetectionHandler:
             return result, leaf_data, bounding_boxes
             
         except Exception as e:
-            self.get_logger().error(f'✗ PlantCV detection error: {str(e)}')
+            self.get_logger().error(f' PlantCV detection error: {str(e)}')
             return f"Detection error: {str(e)}", None, None
     
     def draw_annotations(self, display_frame, leaf_coordinates, blue_box_coordinates=None):
@@ -1697,7 +1697,7 @@ class DetectionHandler:
             return annotated
             
         except Exception as e:
-            self.get_logger().error(f'✗ Annotation drawing error: {str(e)}')
+            self.get_logger().error(f' Annotation drawing error: {str(e)}')
             return display_frame.copy()
 
 

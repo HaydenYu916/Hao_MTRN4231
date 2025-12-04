@@ -33,8 +33,8 @@ fix_library_path
 
 # Safety check
 echo ""
-echo "⚠️  SAFETY WARNING: This will start the REAL robot arm!"
-echo "⚠️  Make sure the workspace is clear and the robot can move safely"
+echo "SAFETY WARNING: This will start the REAL robot arm!"
+echo "Make sure the workspace is clear and the robot can move safely"
 echo ""
 read -p "Continue with real hardware? (yes/no): " -r
 echo
@@ -57,7 +57,7 @@ BUILD_RESULT=$?
 
 # If build fails, try cleaning and rebuilding once
 if [ $BUILD_RESULT -ne 0 ]; then
-    echo "⚠️  Build failed, attempting to clean and rebuild..."
+    echo "Build failed, attempting to clean and rebuild..."
     echo "  Cleaning build and install directories..."
     rm -rf build/ install/ log/ 2>/dev/null || true
     echo "  Rebuilding..."
@@ -164,7 +164,7 @@ for i in $(seq 1 $MAX_WAIT); do
 done
 
 if [ "$TF_READY" = false ] || [ "$CAMERA_READY" = false ]; then
-    echo "  ⚠️  Warning: Some dependencies may not be fully ready"
+    echo "  Warning: Some dependencies may not be fully ready"
     if [ "$TF_READY" = false ]; then
         echo "     - TF transforms not ready"
         echo "       Trying to diagnose:"
@@ -182,8 +182,8 @@ if [ "$TF_READY" = false ] || [ "$CAMERA_READY" = false ]; then
             echo "         ✗ Camera topics not found"
         fi
     fi
-    echo "  💡 If you see coordinate errors, restart this script (./default_scripts/start_all_real.sh)"
-    echo "  💡 Continuing anyway - dependencies may become available shortly..."
+    echo "  If you see coordinate errors, restart this script (./default_scripts/start_all_real.sh)"
+    echo "  Continuing anyway - dependencies may become available shortly..."
     sleep 3  # Give a bit more time even if check failed
 else
     echo "  ✓ All dependencies confirmed ready"
@@ -214,7 +214,7 @@ echo "- LeafDetection: Leaf Detection Server + Visualization"
 echo "- ArduinoServer: Arduino Communication Service (vacuum/spray control)"
 echo "=========================================="
 echo ""
-echo "💡 Tip: Use ./default_scripts/run_automation.sh to start automation task"
+echo "Tip: Use ./default_scripts/run_automation.sh to start automation task"
 
 # ros2 launch arm_manipulation moveit_scene_home_launch.py x:=0.25 y:=0.10 z:=0.55
 

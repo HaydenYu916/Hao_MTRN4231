@@ -83,11 +83,11 @@ class ArmPositionViewer(Node):
             return
         
         print("\n" + "=" * 60)
-        print("📍 Current Robot Arm Status")
+        print(" Current Robot Arm Status")
         print("=" * 60)
         
         # 1. Display joint angles
-        print("\n🔧 Joint Angles (radians / degrees):")
+        print("\n Joint Angles (radians / degrees):")
         for i, name in enumerate(self.joint_data.name):
             pos_rad = self.joint_data.position[i]
             pos_deg = math.degrees(pos_rad)
@@ -102,7 +102,7 @@ class ArmPositionViewer(Node):
                 timeout=rclpy.duration.Duration(seconds=1.0)
             )
             
-            print("\n📐 End Effector Position (base_link → tool0):")
+            print("\n End Effector Position (base_link → tool0):")
             print(f"  Position (x, y, z):")
             print(f"    x: {transform.transform.translation.x:8.4f} m")
             print(f"    y: {transform.transform.translation.y:8.4f} m")

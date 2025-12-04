@@ -71,7 +71,7 @@ int main(int argc, char* argv[])
   planning_scene_interface.applyCollisionObject(col_object_ceiling);
   // planning_scene_interface.applyCollisionObject(col_object_test0);
   
-  std::cout << "✓ Added the following collision objects:" << std::endl;
+  std::cout << " Added the following collision objects:" << std::endl;
   std::cout << "  - table (2.4 x 1.2 x 0.04)" << std::endl;
   std::cout << "  - backWall (2.4 x 0.04 x 1.0)" << std::endl;
   std::cout << "  - sideWall (0.04 x 1.2 x 1.0)" << std::endl;

@@ -90,12 +90,12 @@ done
 # Source workspace
 echo "Loading workspace..."
 if [ ! -f "install/setup.bash" ]; then
-    echo "❌ Error: install/setup.bash file does not exist!"
+    echo " Error: install/setup.bash file does not exist!"
     echo "Please run ./default_scripts/start_all.sh first to start the system"
     exit 1
 fi
 source install/setup.bash || {
-    echo "❌ Error: Failed to load workspace!"
+    echo " Error: Failed to load workspace!"
     exit 1
 }
 
@@ -156,7 +156,7 @@ if [ "$SKIP_CHECK" = false ]; then
     
     if [ "$service_check_success" = false ]; then
         echo ""
-        echo "⚠️  Warning: Unable to communicate with ROS2 system via daemon"
+        echo "  Warning: Unable to communicate with ROS2 system via daemon"
         echo "This might be a temporary issue. The automation task will still start and wait for services."
         echo ""
         echo "If you continue to have issues, you can:"
@@ -173,10 +173,10 @@ if [ "$SKIP_CHECK" = false ]; then
     else
         # Check for leaf detection service
         if ! check_service_available "leaf_detection_srv"; then
-            echo "⚠️  Warning: Leaf detection service is not currently visible"
+            echo "  Warning: Leaf detection service is not currently visible"
             echo "The automation task will wait for it to become available..."
         else
-            echo "✓ Leaf detection service is running normally"
+            echo " Leaf detection service is running normally"
         fi
     fi
 else

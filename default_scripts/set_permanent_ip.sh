@@ -29,8 +29,8 @@ ip addr show eno1 | grep "inet "
 echo ""
 echo "Testing connection to robot..."
 if ping -c 2 -W 2 192.168.0.100 >/dev/null 2>&1; then
-    echo "✓ Successfully connected to robot!"
+    echo " Successfully connected to robot!"
 else
-    echo "✗ Unable to reach robot, please check the network"
+    echo " Unable to reach robot, please check the network"
 fi
 

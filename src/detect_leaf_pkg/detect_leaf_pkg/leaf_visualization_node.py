@@ -80,21 +80,21 @@ class LeafVisualizationNode(Node):
             10
         )
         
-        self.get_logger().info('🎨 Leaf Visualization Node started')
-        self.get_logger().info('📡 Subscribed to /leaf_detection/annotated_image')
-        self.get_logger().info('📡 Subscribed to /leaf_detection/detection_results')
-        self.get_logger().info('📡 Subscribed to /leaf_detection/blue_box_results')
-        self.get_logger().info('📡 Publishing to /leaf_detection/leaf_markers')
-        self.get_logger().info('📡 Publishing to /leaf_detection/blue_box_markers')
-        self.get_logger().info('💡 Visualize in RViz by subscribing to these topics')
-        self.get_logger().info('✨ Coordinate smoothing enabled (smoothing_factor=0.7, min_update=10Hz)')
+        self.get_logger().info('Leaf Visualization Node started')
+        self.get_logger().info('Subscribed to /leaf_detection/annotated_image')
+        self.get_logger().info('Subscribed to /leaf_detection/detection_results')
+        self.get_logger().info('Subscribed to /leaf_detection/blue_box_results')
+        self.get_logger().info('Publishing to /leaf_detection/leaf_markers')
+        self.get_logger().info('Publishing to /leaf_detection/blue_box_markers')
+        self.get_logger().info(' Visualize in RViz by subscribing to these topics')
+        self.get_logger().info('Coordinate smoothing enabled (smoothing_factor=0.7, min_update=10Hz)')
     
     def annotated_image_callback(self, msg):
         """Handle annotated image messages (for logging/monitoring)"""
         try:
             self.get_logger().debug('Received annotated image')
         except Exception as e:
-            self.get_logger().error(f'✗ Error processing annotated image: {str(e)}')
+            self.get_logger().error(f' Error processing annotated image: {str(e)}')
     
     def detection_results_callback(self, msg):
         """Handle detection results and update markers"""
@@ -136,7 +136,7 @@ class LeafVisualizationNode(Node):
             self.last_update_time = now
             self.update_markers(leaf_coordinates)
         except Exception as e:
-            self.get_logger().error(f'✗ Error processing detection results: {str(e)}')
+            self.get_logger().error(f' Error processing detection results: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
     
@@ -159,7 +159,7 @@ class LeafVisualizationNode(Node):
             self.last_blue_box_update_time = now
             self.update_blue_box_markers(blue_boxes)
         except Exception as e:
-            self.get_logger().error(f'✗ Error processing blue box results: {str(e)}')
+            self.get_logger().error(f' Error processing blue box results: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
     
@@ -312,7 +312,7 @@ class LeafVisualizationNode(Node):
                 self.get_logger().warn('No valid coordinates found for markers')
             
         except Exception as e:
-            self.get_logger().error(f'✗ RViz visualization error: {str(e)}')
+            self.get_logger().error(f' RViz visualization error: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
     
@@ -598,7 +598,7 @@ class LeafVisualizationNode(Node):
                         )
             
         except Exception as e:
-            self.get_logger().error(f'✗ Blue box RViz visualization error: {str(e)}')
+            self.get_logger().error(f' Blue box RViz visualization error: {str(e)}')
             import traceback
             self.get_logger().error(traceback.format_exc())
 

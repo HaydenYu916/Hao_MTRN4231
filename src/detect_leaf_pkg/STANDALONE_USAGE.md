@@ -59,7 +59,7 @@ python standalone_leaf_detection.py --min-area 3000
 
 | Feature | ROS2 Version | Standalone Version |
 |---------|-------------|-------------------|
-| ROS2 dependency | ✅ Required | ❌ Not required |
+| ROS2 dependency | ✅ Required |  Not required |
 | Camera input | ROS2 topics | Direct RealSense API |
 | Coordinate transform | TF system (base_link) | Camera coordinate system only |
 | Visualization | RViz + image topics | OpenCV window |
@@ -83,7 +83,7 @@ python standalone_leaf_detection.py --min-area 3000
 
 ### Camera Not Detected
 ```
-✗ Camera initialization failed: ...
+ Camera initialization failed: ...
 ```
 **Solution**: 
 - Check camera USB connection
@@ -102,8 +102,8 @@ python standalone_leaf_detection.py --min-area 3000
 ## Example Output
 
 ```
-✓ Standalone leaf detector initialized
-✓ RealSense camera initialized
+ Standalone leaf detector initialized
+ RealSense camera initialized
   Resolution: 640x480
   Intrinsics: fx=616.23, fy=616.23
 

@@ -15,9 +15,9 @@ echo "1. Checking Ethernet cable connection..."
 if [ -f /sys/class/net/eno1/carrier ]; then
     CARRIER=$(cat /sys/class/net/eno1/carrier)
     if [ "$CARRIER" = "1" ]; then
-        echo "   ✓ Ethernet cable is connected"
+        echo "    Ethernet cable is connected"
     else
-        echo "   ✗ Ethernet cable not connected! Please check the cable"
+        echo "    Ethernet cable not connected! Please check the cable"
         exit 1
     fi
 else
@@ -31,7 +31,7 @@ ip addr flush dev eno1 2>/dev/null || true
 ip addr add 192.168.0.77/24 dev eno1
 ip link set eno1 up
 sleep 2
-echo "   ✓ IP configured"
+echo "    IP configured"
 echo ""
 
 # 显示当前IP
@@ -42,10 +42,10 @@ echo ""
 # 测试连接
 echo "4. Testing connection to robot (192.168.0.100)..."
 if ping -c 2 -W 2 192.168.0.100 >/dev/null 2>&1; then
-    echo "   ✓ Successfully reached the robot!"
+    echo "    Successfully reached the robot!"
     ping -c 3 192.168.0.100
 else
-    echo "   ✗ Unable to ping the robot"
+    echo "    Unable to ping the robot"
     echo ""
     echo "5. 扫描网络查找设备..."
     if command -v nmap >/dev/null 2>&1; then

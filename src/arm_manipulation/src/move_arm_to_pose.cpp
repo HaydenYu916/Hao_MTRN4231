@@ -123,9 +123,9 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
     for (const auto& obj_pair : objects) {
       std::cout << "  - " << obj_pair.first << std::endl;
     }
-    std::cout << "✓ Static collision objects loaded" << std::endl;
+    std::cout << " Static collision objects loaded" << std::endl;
   } else {
-    std::cout << "⚠ Warning: No static collision objects in planning scene!" << std::endl;
+    std::cout << " Warning: No static collision objects in planning scene!" << std::endl;
     std::cout << "  Please ensure: ros2 launch arm_manipulation add_collision_objects_launch.py" << std::endl;
   }
   
@@ -204,7 +204,7 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
       if (found_joint) {
         bool in_range = (current_joint_val >= min_val && current_joint_val <= max_val);
         std::cout << " Current: " << (current_joint_val * 180.0 / M_PI) << "°"
-                  << (in_range ? " ✓" : " ✗ Out of range!");
+                  << (in_range ? " " : "  Out of range!");
         if (!in_range) {
           std::cout << "\n    Warning: Start point is not within constraint range, planning may fail!";
         }
@@ -272,7 +272,7 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
     
     auto result = move_group.plan(plan);
     if (result == moveit::core::MoveItErrorCode::SUCCESS) {
-      std::cout << "✓ " << planner_cfg.name << " planning succeeded!" << std::endl;
+      std::cout << " " << planner_cfg.name << " planning succeeded!" << std::endl;
       std::cout << "  Planned path contains " << plan.trajectory_.joint_trajectory.points.size() << " waypoints" << std::endl;
       
       // Try to execute (MoveIt will automatically validate path before execution)
@@ -281,10 +281,10 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
       if (exec_result == moveit::core::MoveItErrorCode::SUCCESS) {
         success = true;
         successful_planner = planner_cfg.name;
-        std::cout << "✓ Execution succeeded!" << std::endl;
+        std::cout << " Execution succeeded!" << std::endl;
         break;
       } else {
-        std::cout << "✗ Execution failed (error code: " << exec_result.val << ")" << std::endl;
+        std::cout << " Execution failed (error code: " << exec_result.val << ")" << std::endl;
         if (exec_result == moveit::core::MoveItErrorCode::PLANNING_FAILED) {
           std::cout << "  Reason: Path validation failed (may be too close to collision objects)" << std::endl;
           std::cout << "  Hint: Blue box safety margin reduced to 0.5cm, if still failing, may need to adjust target position" << std::endl;
@@ -292,7 +292,7 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
         // Continue trying next planner
       }
    } else {
-      std::cout << "✗ " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
+      std::cout << " " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
     }
   }
   
@@ -321,7 +321,7 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
       
       auto result = move_group.plan(plan);
       if (result == moveit::core::MoveItErrorCode::SUCCESS) {
-        std::cout << "✓ " << planner_cfg.name << " planning succeeded (no constraints)!" << std::endl;
+        std::cout << " " << planner_cfg.name << " planning succeeded (no constraints)!" << std::endl;
         std::cout << "  Planned path contains " << plan.trajectory_.joint_trajectory.points.size() << " waypoints" << std::endl;
         
         // Try to execute
@@ -330,13 +330,13 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
         if (exec_result == moveit::core::MoveItErrorCode::SUCCESS) {
           success = true;
           successful_planner = planner_cfg.name + " (no constraints)";
-          std::cout << "✓ Execution succeeded!" << std::endl;
+          std::cout << " Execution succeeded!" << std::endl;
           break;
         } else {
-          std::cout << "✗ Execution failed (error code: " << exec_result.val << ")" << std::endl;
+          std::cout << " Execution failed (error code: " << exec_result.val << ")" << std::endl;
         }
       } else {
-        std::cout << "✗ " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
+        std::cout << " " << planner_cfg.name << " planning failed (error code: " << result.val << ")" << std::endl;
         
         // If "Insufficient states in sampleable goal region" error, provide more detailed diagnosis
         if (result == moveit::core::MoveItErrorCode::PLANNING_FAILED) {
@@ -351,12 +351,12 @@ const std::vector<JointConstraintConfig> JOINT_CONSTRAINTS = {
 
   // Output final result
    if (success) {
-    std::cout << "\n✓ Success! Planner used: " << successful_planner << std::endl;
+    std::cout << "\n Success! Planner used: " << successful_planner << std::endl;
     auto final_pose = move_group.getCurrentPose().pose;
     std::cout << "Final position: (" << final_pose.position.x << ", " 
               << final_pose.position.y << ", " << final_pose.position.z << ")" << std::endl;
   } else {
-    std::cout << "\n✗ Failed! All planners unable to find path from current position to target position." << std::endl;
+    std::cout << "\n Failed! All planners unable to find path from current position to target position." << std::endl;
     std::cout << "\nPossible solutions:" << std::endl;
     std::cout << "  1. Check if target position is within robot workspace" << std::endl;
     std::cout << "  2. Check if collision objects are blocking the path" << std::endl;

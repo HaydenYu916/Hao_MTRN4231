@@ -169,22 +169,22 @@ class AutomationOrchestrator(Node):
         self.get_logger().info(f"Waiting for leaf detection service... (timeout: {timeout_sec}s)")
         
         if not self.client.wait_for_service(timeout_sec=timeout_sec):
-            self.get_logger().error("❌ Leaf detection service unavailable!")
+            self.get_logger().error(" Leaf detection service unavailable!")
             self.get_logger().error("Please ensure the following service is running:")
             self.get_logger().error("  - ros2 launch detect_leaf_pkg leaf_detection_server.launch.py")
             return False
         
-        self.get_logger().info("✓ Leaf detection service ready")
+        self.get_logger().info(" Leaf detection service ready")
         
         # Wait for Arduino service
         self.get_logger().info(f"Waiting for Arduino communication service... (timeout: {timeout_sec}s)")
         if not self.arduino_client.wait_for_service(timeout_sec=timeout_sec):
-            self.get_logger().error("❌ Arduino communication service unavailable!")
+            self.get_logger().error(" Arduino communication service unavailable!")
             self.get_logger().error("Please ensure the following service is running:")
             self.get_logger().error("  - ros2 run arduino_communication leafServerNode")
             return False
         
-        self.get_logger().info("✓ Arduino communication service ready")
+        self.get_logger().info(" Arduino communication service ready")
         return True
     
     def detect_leaves(self):
@@ -237,7 +237,7 @@ class AutomationOrchestrator(Node):
             response: Detection service response
         """
         self.get_logger().info("\n" + "=" * 80)
-        self.get_logger().info("🌿 Leaf Detection Results")
+        self.get_logger().info(" Leaf Detection Results")
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Status: {response.message}")
         self.get_logger().info(f"Leaves detected: {response.num_leaves}")
@@ -277,13 +277,13 @@ class AutomationOrchestrator(Node):
         if z < self.z_min:
             z = self.z_min
             self.get_logger().warn(
-                f"⚠ Z coordinate {original_z:.3f}m below minimum {self.z_min:.3f}m, "
+                f" Z coordinate {original_z:.3f}m below minimum {self.z_min:.3f}m, "
                 f"clamped to {z:.3f}m"
             )
         elif z > self.z_max:
             z = self.z_max
             self.get_logger().warn(
-                f"⚠ Z coordinate {original_z:.3f}m above maximum {self.z_max:.3f}m, "
+                f" Z coordinate {original_z:.3f}m above maximum {self.z_max:.3f}m, "
                 f"clamped to {z:.3f}m"
             )
         return z
@@ -359,10 +359,10 @@ class AutomationOrchestrator(Node):
                 self.get_logger().warn(f"Command warnings/errors:\n{result.stderr}")
             
             if result.returncode == 0:
-                self.get_logger().info("✓ Robot arm movement successful")
+                self.get_logger().info(" Robot arm movement successful")
                 return True
             else:
-                self.get_logger().error("❌ Robot arm movement failed")
+                self.get_logger().error(" Robot arm movement failed")
                 self.get_logger().error(f"Return code: {result.returncode}")
                 if result.stdout and result.stdout.strip():
                     self.get_logger().error(f"Standard output:\n{result.stdout}")
@@ -374,11 +374,11 @@ class AutomationOrchestrator(Node):
                 
         except subprocess.TimeoutExpired:
             self.get_logger().error(
-                f"❌ Robot arm movement timeout (>{self.arm_movement_timeout}s)"
+                f" Robot arm movement timeout (>{self.arm_movement_timeout}s)"
             )
             return False
         except Exception as e:
-            self.get_logger().error(f"❌ Robot arm movement exception: {str(e)}")
+            self.get_logger().error(f" Robot arm movement exception: {str(e)}")
             self.get_logger().error(f"Exception type: {type(e).__name__}")
             self.get_logger().error(f"Exception traceback:\n{traceback.format_exc()}")
             return False
@@ -419,9 +419,9 @@ class AutomationOrchestrator(Node):
         )
         
         if success:
-            self.get_logger().info("✓ Robot arm returned to home position (MoveIt)")
+            self.get_logger().info(" Robot arm returned to home position (MoveIt)")
         else:
-            self.get_logger().error("❌ Return to home via MoveIt planning failed")
+            self.get_logger().error(" Return to home via MoveIt planning failed")
         
         return success
     
@@ -498,7 +498,7 @@ class AutomationOrchestrator(Node):
                 f"XY with bias)"
             )
             if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, spray_height, apply_bias=True):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} movement to spray height failed")
+                self.get_logger().warn(f" Leaf {leaf_index} movement to spray height failed")
                 return False
             
             # Step 2: Move vertically down to leaf target Z
@@ -532,12 +532,12 @@ class AutomationOrchestrator(Node):
                 f"with XY bias applied"
             )
             if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, target_z_command, apply_bias=True):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} vertical movement to target Z failed")
+                self.get_logger().warn(f" Leaf {leaf_index} vertical movement to target Z failed")
                 return False
             
             # Step 3: Open vacuum
             if not self.send_arduino_command("VACUUM_ON"):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to open vacuum")
+                self.get_logger().warn(f" Leaf {leaf_index} failed to open vacuum")
                 return False
             
             # Step 4: Wait 3 seconds
@@ -547,7 +547,7 @@ class AutomationOrchestrator(Node):
             # Step 5: Move to trash bin (vacuum stays on)
             self.get_logger().info(f"Moving to trash bin with vacuum ON...")
             if not self.move_arm_to_trash():
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} movement to trash bin failed")
+                self.get_logger().warn(f" Leaf {leaf_index} movement to trash bin failed")
                 # Try to close vacuum even if movement failed
                 self.send_arduino_command("VACUUM_OFF")
                 return False
@@ -555,10 +555,10 @@ class AutomationOrchestrator(Node):
             # Step 6: Close vacuum when arrived at bin
             self.get_logger().info(f"Arrived at trash bin, closing vacuum...")
             if not self.send_arduino_command("VACUUM_OFF"):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to close vacuum")
+                self.get_logger().warn(f" Leaf {leaf_index} failed to close vacuum")
                 return False
             
-            self.get_logger().info(f"✓ Leaf {leaf_index} discarded successfully")
+            self.get_logger().info(f" Leaf {leaf_index} discarded successfully")
         
         else:
             # Healthy leaf workflow:
@@ -570,14 +570,14 @@ class AutomationOrchestrator(Node):
             )
             
             if not self.move_arm_to_pose(leaf_point.x, leaf_point.y, target_z):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} movement failed")
+                self.get_logger().warn(f" Leaf {leaf_index} movement failed")
                 return False
             
             # Step 2: Open spray (SPRAY_ON)
             self.get_logger().info(f"Leaf {leaf_index} is healthy, starting spray treatment...")
             
             if not self.send_arduino_command("SPRAY_ON"):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to open spray")
+                self.get_logger().warn(f" Leaf {leaf_index} failed to open spray")
                 return False
             
             # Step 3: Wait 3 seconds
@@ -586,10 +586,10 @@ class AutomationOrchestrator(Node):
             
             # Step 4: Close spray (SPRAY_OFF)
             if not self.send_arduino_command("SPRAY_OFF"):
-                self.get_logger().warn(f"⚠ Leaf {leaf_index} failed to close spray")
+                self.get_logger().warn(f" Leaf {leaf_index} failed to close spray")
                 return False
             
-            self.get_logger().info(f"✓ Leaf {leaf_index} spray treatment completed")
+            self.get_logger().info(f" Leaf {leaf_index} spray treatment completed")
         
         return True
     
@@ -664,10 +664,10 @@ class AutomationOrchestrator(Node):
         home_success = self.move_arm_to_home()
         
         if home_success:
-            self.get_logger().info("✓ Returned to home position")
+            self.get_logger().info(" Returned to home position")
         else:
             self.get_logger().error("\n" + "!" * 80)
-            self.get_logger().error("❌❌❌ WARNING: Return to home position failed! ❌❌❌")
+            self.get_logger().error(" WARNING: Return to home position failed! ")
             self.get_logger().error("!" * 80)
             self.get_logger().error(
                 f"Target position: ({self.home_x:.3f}, {self.home_y:.3f}, {self.home_z:.3f})"
@@ -686,7 +686,7 @@ class AutomationOrchestrator(Node):
         self.get_logger().info("\n" + "=" * 80)
         self.get_logger().info("Automation task flow complete")
         if not home_success:
-            self.get_logger().info("⚠ Notice: Robot arm did not successfully return to home position")
+            self.get_logger().info(" Notice: Robot arm did not successfully return to home position")
         self.get_logger().info("=" * 80 + "\n")
         
         # Consider task flow complete even if return home failed

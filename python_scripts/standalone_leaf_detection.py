@@ -70,12 +70,12 @@ class StandaloneLeafDetector:
         # Camera intrinsics (will be obtained from RealSense)
         self.intrinsics = None
         
-        print('✓ Standalone leaf detector initialized')
+        print(' Standalone leaf detector initialized')
         if self.detect_yellow:
-            print(f'  ✓ Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.3f}, '
+            print(f'   Yellow tape detection enabled (threshold={self.yellow_ratio_threshold:.3f}, '
                   f'HSV range: {self.yellow_hsv_lower} - {self.yellow_hsv_upper})')
         if self.detect_blue_box:
-            print(f'  ✓ Blue box detection enabled (min_area={self.blue_min_area}, '
+            print(f'   Blue box detection enabled (min_area={self.blue_min_area}, '
                   f'HSV range: {self.blue_hsv_lower} - {self.blue_hsv_upper})')
     
     def setup_camera(self):
@@ -99,7 +99,7 @@ class StandaloneLeafDetector:
         color_profile = rs.video_stream_profile(profile.get_stream(rs.stream.color))
         self.intrinsics = color_profile.get_intrinsics()
         
-        print(f'✓ RealSense camera initialized')
+        print(f' RealSense camera initialized')
         print(f'  Resolution: {self.intrinsics.width}x{self.intrinsics.height}')
         print(f'  Intrinsics: fx={self.intrinsics.fx:.2f}, fy={self.intrinsics.fy:.2f}')
         
@@ -125,7 +125,7 @@ class StandaloneLeafDetector:
             
             return color_image, depth_image
         except Exception as e:
-            print(f'✗ Failed to get frames: {e}')
+            print(f' Failed to get frames: {e}')
             return None, None
     
     def pixel_to_3d(self, pixel_u, pixel_v, depth_value_mm):
@@ -152,7 +152,7 @@ class StandaloneLeafDetector:
             )
             return tuple(point_3d)
         except Exception as e:
-            print(f'✗ 3D deprojection error: {e}')
+            print(f' 3D deprojection error: {e}')
             return None
     
     def measure_box_dimensions_3d(self, bbox_2d, depth_image, mask=None, sample_step=2):
@@ -371,7 +371,7 @@ class StandaloneLeafDetector:
                 
                 # Debug info: show number of detected contours
                 if frame_count <= 5:
-                    print(f'  🔍 Blue detection: found {len(blue_contours)} Contours (HSV range: {self.blue_hsv_lower}-{self.blue_hsv_upper}, min area>{self.blue_min_area})')
+                    print(f'   Blue detection: found {len(blue_contours)} Contours (HSV range: {self.blue_hsv_lower}-{self.blue_hsv_upper}, min area>{self.blue_min_area})')
                 
                 # Collect all valid blue regions (may be different faces of the box)
                 valid_blue_regions = []
@@ -624,7 +624,7 @@ class StandaloneLeafDetector:
                     # Debug info
                     if frame_count <= 5:
                         method_used = "Dense sampling (high precision)" if measured_dimensions else "Simple estimation (fallback)"
-                        print(f'    ✓ Blue box {blue_box_idx}: {len(group)}faces, total area={merged_area:.0f}, '
+                        print(f'     Blue box {blue_box_idx}: {len(group)}faces, total area={merged_area:.0f}, '
                               f'merged size={merged_w}x{merged_h}, depth={avg_depth_mm}mm')
                         if merged_point_3d:
                             print(f'      3D position: X={merged_point_3d[0]:.3f}m, Y={merged_point_3d[1]:.3f}m, Z={merged_point_3d[2]:.3f}m')
@@ -640,9 +640,9 @@ class StandaloneLeafDetector:
                 # Debug info
                 if len(blue_box_coordinates) > 0:
                     if frame_count <= 5 or frame_count % 30 == 0:
-                        print(f'  📦 Detected {len(blue_box_coordinates)} blue boxes')
+                        print(f'  Detected {len(blue_box_coordinates)} blue boxes')
                 elif frame_count <= 5:
-                    print(f'  ⚠️ No blue boxes detected (check HSV range and min area settings)')
+                    print(f'   No blue boxes detected (check HSV range and min area settings)')
             
             # Create debug image: show green, yellow and blue detection results
             debug_thresh = np.zeros((crop_img.shape[0], crop_img.shape[1], 3), dtype=np.uint8)
@@ -878,7 +878,7 @@ class StandaloneLeafDetector:
                             
                             # Debug log: record detected yellow tape info
                             if frame_count <= 5 or frame_count % 30 == 0:
-                                print(f'  🎯 Leaf {leaf_idx}: Detected yellow tape - '
+                                print(f'  Leaf {leaf_idx}: Detected yellow tape - '
                                       f'yellow_ratio={yellow_ratio:.4f} '
                                       f'(Threshold={self.yellow_ratio_threshold:.4f}), '
                                       f'YellowPixels={yellow_pixels}/{leaf_pixels}, '
@@ -892,7 +892,7 @@ class StandaloneLeafDetector:
                                 if max_yellow_area < min_yellow_area_threshold:
                                     reason.append(f'Area too small ({max_yellow_area:.0f} < {min_yellow_area_threshold:.0f})')
                                 print(
-                                    f'  ⚠️ Leaf {leaf_idx}: Detected yellow but validation failed - '
+                                    f'   Leaf {leaf_idx}: Detected yellow but validation failed - '
                                     f'yellow_ratio={yellow_ratio:.4f} '
                                     f'(largest connected region={max_yellow_area:.0f} pixels, '
                                     f'reason: {", ".join(reason)})'
@@ -901,7 +901,7 @@ class StandaloneLeafDetector:
                         # Debug: if leaf region is empty, record warning
                         if frame_count <= 5:
                             print(
-                                f'  ⚠️ Leaf {leaf_idx}: Leaf region mask is empty, cannot detect yellow tape '
+                                f'   Leaf {leaf_idx}: Leaf region mask is empty, cannot detect yellow tape '
                                 f'(bbox: x={x}, y={y}, w={w_rect}, h={h_rect})'
                             )
                 
@@ -949,13 +949,13 @@ class StandaloneLeafDetector:
             yellow_tape_count = sum(1 for leaf in leaf_coordinates if leaf.get('has_yellow_tape', False))
             if yellow_tape_count > 0:
                 print(
-                    f'  📊 Detection summary: total {num_detected_leaves} leaves, '
+                    f'  Detection summary: total {num_detected_leaves} leaves, '
                     f'of which {yellow_tape_count} detected with yellow tape'
                 )
                 # List all leaves with yellow tape
                 for leaf in leaf_coordinates:
                     if leaf.get('has_yellow_tape', False):
-                        print(f'    ✓ Leaf {leaf["id"]}: yellow_ratio={leaf.get("yellow_ratio", 0):.4f}')
+                        print(f'     Leaf {leaf["id"]}: yellow_ratio={leaf.get("yellow_ratio", 0):.4f}')
             
             if num_detected_leaves == 0:
                 # Even if depth filtering fails, also show contours (for debugging)
@@ -1018,7 +1018,7 @@ class StandaloneLeafDetector:
             return result, leaf_data, bounding_boxes, debug_images
             
         except Exception as e:
-            print(f'✗ PlantCV detection error: {str(e)}')
+            print(f' PlantCV detection error: {str(e)}')
             import traceback
             traceback.print_exc()
             return f"Detection error: {str(e)}", None, None, debug_images
@@ -1165,7 +1165,7 @@ class StandaloneLeafDetector:
             return annotated
             
         except Exception as e:
-            print(f'✗ Annotation drawing error: {e}')
+            print(f' Annotation drawing error: {e}')
             import traceback
             traceback.print_exc()
             return display_frame.copy()
@@ -1352,10 +1352,10 @@ class StandaloneLeafDetector:
         try:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(window_name, 960, 720)  # 3x3Grid, each 320x240
-            print('✓ Visualization window created')
+            print(' Visualization window created')
             print('   All processing steps will be displayed in one window')
         except Exception as e:
-            print(f'⚠ Window creation warning: {e}')
+            print(f' Window creation warning: {e}')
             print('  Continuing, but window may not display')
         
         try:
@@ -1365,7 +1365,7 @@ class StandaloneLeafDetector:
                 
                 if color_image is None or depth_image is None:
                     if frame_count == 0:
-                        print('⚠ Waiting for camera data...')
+                        print(' Waiting for camera data...')
                     continue
                 
                 frame_count += 1
@@ -1411,7 +1411,7 @@ class StandaloneLeafDetector:
                                 size_3d = blue_box.get('size_3d')
                                 depth_mm = blue_box.get('depth_mm', 0)
                                 
-                                print(f'\n📦 Blue box {box_id}:')
+                                print(f'\nBlue box {box_id}:')
                                 print(f'  ├─ Basic info:')
                                 print(f'  │   ├─ Number of detected faces: {num_faces}')
                                 print(f'  │   ├─ total area: {area:.0f} Pixels²')
@@ -1452,7 +1452,7 @@ class StandaloneLeafDetector:
                 
                 # Check if image is valid
                 if annotated_image is None or annotated_image.size == 0:
-                    print('⚠ Image invalid, skipping display')
+                    print(' Image invalid, skipping display')
                     continue
                 
                 # Create composite image
@@ -1464,14 +1464,14 @@ class StandaloneLeafDetector:
                     
                     # Print prompt on first display
                     if frame_count == 1:
-                        print('✓ Image display started')
+                        print(' Image display started')
                         print('   All processing steps displayed in one window')
                         print('   If window not visible, check：')
                         print('   1. If window is blocked by other windows')
                         print('   2. If using remote SSH (needs X11 forwarding)')
                         print('   3. If DISPLAY environment variable is set correctly')
                 except Exception as e:
-                    print(f'✗ Failed to display image: {e}')
+                    print(f' Failed to display image: {e}')
                     import traceback
                     traceback.print_exc()
                     print('   Tip: If using SSH, use X11 forwarding: ssh -X user@host')
@@ -1489,7 +1489,7 @@ class StandaloneLeafDetector:
         except KeyboardInterrupt:
             print('\nUser interrupted (Ctrl+C)')
         except Exception as e:
-            print(f'\n✗ Runtime error: {e}')
+            print(f'\n Runtime error: {e}')
             import traceback
             traceback.print_exc()
         finally:
@@ -1500,7 +1500,7 @@ class StandaloneLeafDetector:
                 pass
             if hasattr(self, 'pipeline'):
                 self.pipeline.stop()
-            print('\n✓ Program exited')
+            print('\n Program exited')
 
 
 def main():
@@ -1588,7 +1588,7 @@ def main():
     try:
         detector.setup_camera()
     except Exception as e:
-        print(f'✗ Camera initialization failed: {e}')
+        print(f' Camera initialization failed: {e}')
         print('Please ensure RealSense camera is connected and properly configured')
         sys.exit(1)
     

@@ -42,7 +42,7 @@ public:
         }
         
         if (serial_port_ < 0) {
-            RCLCPP_WARN(this->get_logger(), "⚠️  No Arduino hardware detected. Running in FAKE/SIMULATION mode.");
+            RCLCPP_WARN(this->get_logger(), "  No Arduino hardware detected. Running in FAKE/SIMULATION mode.");
             RCLCPP_WARN(this->get_logger(), "   Commands will be logged but not sent to hardware.");
             RCLCPP_WARN(this->get_logger(), "   All service functionality will work normally for testing.");
             fake_mode_ = true;
@@ -102,10 +102,10 @@ public:
             std::bind(&leafServer::update_visualization, this));
 
         if (fake_mode_) {
-            RCLCPP_INFO(this->get_logger(), "✓ leafServer ready in FAKE/SIMULATION mode. Listening for commands.");
+            RCLCPP_INFO(this->get_logger(), " leafServer ready in FAKE/SIMULATION mode. Listening for commands.");
             RCLCPP_INFO(this->get_logger(), "  Service '/send_command' is available for testing.");
         } else {
-            RCLCPP_INFO(this->get_logger(), "✓ leafServer ready with Arduino hardware at %s. Listening for commands.", opened_port.c_str());
+            RCLCPP_INFO(this->get_logger(), " leafServer ready with Arduino hardware at %s. Listening for commands.", opened_port.c_str());
         }
     }
 

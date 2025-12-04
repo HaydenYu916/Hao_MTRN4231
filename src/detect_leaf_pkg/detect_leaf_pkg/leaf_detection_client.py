@@ -23,7 +23,7 @@ class LeafDetectionClient(Node):
         while not self.client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Service not available, waiting again...')
         
-        self.get_logger().info('✓ Service available! Ready for commands.')
+        self.get_logger().info(' Service available! Ready for commands.')
     
     def send_request(self, min_area=0.0, confidence=0.0):
         """Send detection request to service"""
@@ -56,7 +56,7 @@ class LeafDetectionClient(Node):
     def log_detection_results(self, response):
         """Format and log detection results"""
         self.get_logger().info("\n" + "=" * 80)
-        self.get_logger().info("🌿 Leaf Detection Results")
+        self.get_logger().info(" Leaf Detection Results")
         self.get_logger().info("=" * 80)
         self.get_logger().info(f"Status: {response.message}")
         self.get_logger().info(f"Leaves found: {response.num_leaves}")

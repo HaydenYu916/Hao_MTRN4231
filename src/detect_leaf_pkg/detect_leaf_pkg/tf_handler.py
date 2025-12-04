@@ -49,7 +49,7 @@ class TFHandler:
         self.optical_frame = 'camera_color_optical_frame'   # RealSense color optical frame
 
         self.get_logger().info(
-            f'✓ TF Handler initialized (PointStamped version, '
+            f' TF Handler initialized (PointStamped version, '
             f'offsets: x={self.x_offset}m, y={self.y_offset}m, z={self.z_offset}m)'
         )
 
@@ -81,7 +81,7 @@ class TFHandler:
             self.intrinsics.model = rs.distortion.kannala_brandt4
 
         self.intrinsics.coeffs = list(msg.d)
-        self.get_logger().info('✓ Camera intrinsics loaded')
+        self.get_logger().info(' Camera intrinsics loaded')
 
     # ------------------------------------------------------------
     # Pixel + depth → 3D point (camera optical frame)
@@ -101,7 +101,7 @@ class TFHandler:
             )
             return tuple(point_3d)
         except Exception as e:
-            self.get_logger().error(f'✗ 3D deprojection error: {e}')
+            self.get_logger().error(f' 3D deprojection error: {e}')
             return None
 
     # ------------------------------------------------------------
@@ -139,7 +139,7 @@ class TFHandler:
             return [transformed.point.x, transformed.point.y, transformed.point.z]
 
         except Exception as e:
-            self.get_logger().error(f'✗ Optical→Camera_link TF error: {e}')
+            self.get_logger().error(f' Optical→Camera_link TF error: {e}')
             return None
 
     # ------------------------------------------------------------
@@ -196,7 +196,7 @@ class TFHandler:
             # Reset warning counter if TF is now available (after previous failures)
             if self.tf_warning_count > 0:
                 self.get_logger().info(
-                    f'✓ TF now available: {self.optical_frame} → {self.base_frame} '
+                    f' TF now available: {self.optical_frame} → {self.base_frame} '
                     f'(was unavailable for {self.tf_warning_count} attempts)'
                 )
                 self.tf_warning_count = 0
@@ -232,5 +232,5 @@ class TFHandler:
             return [result_x, result_y, result_z]
 
         except Exception as e:
-            self.get_logger().error(f'✗ Camera→Base TF error: {e}')
+            self.get_logger().error(f' Camera→Base TF error: {e}')
             return None

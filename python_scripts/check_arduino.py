@@ -45,18 +45,18 @@ def check_arduino_ports():
                         'mode': oct(file_stat.st_mode)[-3:]
                     })
                     
-                    print(f"✓ Found device: {port}")
+                    print(f" Found device: {port}")
                     print(f"  Type: character device")
                     print(f"  Mode: {oct(file_stat.st_mode)[-3:]}")
                     print(f"  Readable: {'yes' if readable else 'no'}")
                     print(f"  Writable: {'yes' if writable else 'no'}")
                     print()
             except Exception as e:
-                print(f"✗ Error while checking {port}: {e}")
+                print(f" Error while checking {port}: {e}")
                 print()
     
     if not found_ports:
-        print("✗ No Arduino serial devices found")
+        print(" No Arduino serial devices found")
         print()
         return False
     
@@ -74,7 +74,7 @@ def check_arduino_ports():
         print(f"User in 'dialout' group: {'yes' if in_dialout else 'no'}")
         
         if not in_dialout:
-            print("⚠️  Warning: user is not in 'dialout' group, serial ports may not be accessible")
+            print("  Warning: user is not in 'dialout' group, serial ports may not be accessible")
             print("   Fix: sudo usermod -a -G dialout $USER")
             print("   Then re-login or run: newgrp dialout")
             print()
@@ -92,14 +92,14 @@ def check_arduino_ports():
                 # Try to open in read/write mode (non-blocking, but without actual writes)
                 fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
                 os.close(fd)
-                print(f"✓ {port}: successfully opened (accessible)")
+                print(f" {port}: successfully opened (accessible)")
             except PermissionError:
-                print(f"✗ {port}: insufficient permissions, cannot open")
+                print(f" {port}: insufficient permissions, cannot open")
                 print(f"  You need to add the user to the 'dialout' group or use sudo")
             except Exception as e:
-                print(f"✗ {port}: failed to open - {e}")
+                print(f" {port}: failed to open - {e}")
         else:
-            print(f"✗ {port}: no write permission")
+            print(f" {port}: no write permission")
     
     print()
     print("=" * 60)
@@ -107,12 +107,12 @@ def check_arduino_ports():
     # Summary
     accessible_ports = [p for p in found_ports if p['writable']]
     if accessible_ports:
-        print(f"✓ Detected {len(accessible_ports)} accessible Arduino device(s)")
+        print(f" Detected {len(accessible_ports)} accessible Arduino device(s)")
         for p in accessible_ports:
             print(f"  - {p['port']}")
         return True
     else:
-        print("✗ Arduino devices detected but not accessible (permission issue)")
+        print(" Arduino devices detected but not accessible (permission issue)")
         return False
 
 if __name__ == "__main__":
